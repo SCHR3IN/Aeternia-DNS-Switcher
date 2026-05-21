@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -47,6 +47,16 @@ git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
 cd Aeternia-DNS-Switcher
 sudo bash install.sh
 ```
+
+### Обновление
+
+```bash
+sudo aeternia-dns-switcher --update
+```
+
+Программа сама проверит наличие новой версии на GitHub, скачает и установит обновление.
+
+Также можно обновить через клавишу `U` в интерфейсе программы.
 
 ### Удаление
 
@@ -138,6 +148,7 @@ sudo aeternia-dns-switcher
 | `A` | Добавить/перенастроить серверы (ввод нового ID) |
 | `D` | Удалить выбранный сервер |
 | `R` | Перепроверить статус сервисов и DNS |
+| `U` | Проверить и установить обновления |
 | `B` | Откатить конфигурацию к последнему бэкапу |
 | `Q` | Выход |
 
@@ -199,9 +210,9 @@ ASTRONIA_DNS/
 ├── install.sh                    # Установщик (вызывается из installer)
 ├── build_installer.sh            # Сборщик единого установщика
 ├── aeternia-dns-installer.sh     # Готовый self-extracting установщик
-├── aeternia-dns-switcher.svg     # SVG-иконка
-├── logo.jpg                      # Логотип
-└── v1_backup/                    # Бэкап v1
+├── logo.jpg                      # Логотип / иконка приложения
+├── VERSION                       # Файл версии (для автообновлений)
+└── CHANGELOG.md                  # История изменений
 ```
 
 ---
