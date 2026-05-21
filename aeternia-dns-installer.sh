@@ -85,3 +85,4 @@ echo
 echo "  Запуск из терминала:  aeternia-dns-switcher"
 echo "  Или найдите в меню приложений: «Aeternia DNS»"
 echo
+# rebuilt Чт 21 мая 2026 18:01:31 MSK
