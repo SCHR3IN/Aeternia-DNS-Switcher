@@ -18,8 +18,7 @@ from dns_utils import (
     read_config, get_current_stamp, get_current_server,
     backup_config, find_latest_backup,
     patch_config, write_config_atomic,
-    check_config_file, restart_services, stop_services, enable_services,
-    get_service_statuses,
+    check_config_file, restart_services, get_service_statuses,
     check_dns, rollback_config,
     measure_ping, measure_all_pings,
     VERSION, check_for_update, run_update,
@@ -278,15 +277,12 @@ class App:
         row += 1
 
         # Info
+        cur_name = self.current_server["name"] if self.current_server else "не выбран"
         svc_ok = all(v == "active" for v in self.svc_statuses.values())
-        if self.current_server:
-            cur_name = self.current_server["name"]
-        elif not svc_ok:
-            cur_name = "По умолчанию (без прокси)"
-        else:
-            cur_name = "не выбран"
-        svc_color = self._cp(1, True) if svc_ok else self._cp(3, True)
-        svc_label = "active" if svc_ok else "stopped"
+        svc_color = self._cp(1, True) if svc_ok else self._cp(2, True)
+        svc_label = "active" if svc_ok else " / ".join(
+            f"{k.split('.')[0]}:{v}" for k, v in self.svc_statuses.items()
+        )
 
         self._put(row, 2, "Текущий DNS:    ")
         self._put(row, 18, cur_name, curses.A_BOLD)
@@ -305,18 +301,6 @@ class App:
         self._put(row, 2, "Выберите сервер:", curses.A_BOLD)
         ping_hint = "  (P — обновить пинг)" if not self.pings else ""
         self._put(row, 20, ping_hint, self._cp(4))
-        row += 1
-
-        # [0] По умолчанию
-        is_default_selected = (self.selected == -1)
-        is_default_active = (not svc_ok and self.current_server is None)
-        default_label = " > [0] По умолчанию (без прокси)"
-        if is_default_selected:
-            self._put(row, 0, default_label.ljust(min(w - 1, 40)), self._cp(5, True))
-        elif is_default_active:
-            self._put(row, 0, default_label, self._cp(3, True))
-        else:
-            self._put(row, 0, default_label)
         row += 1
 
         for i, srv in enumerate(self.servers):
@@ -422,9 +406,8 @@ class App:
             return
         self.draw()
 
-        # Restart (включаем если были остановлены)
+        # Restart
         self._step("Перезапускаю dnscrypt-proxy...")
-        enable_services()
         ok, msg = restart_services()
         if ok:
             self._log("Сервисы перезапущены", "ok")
@@ -493,23 +476,6 @@ class App:
                   "ok" if svc_ok else "warn")
         dns_ok, dns_msg = check_dns()
         self._log(f"DNS: {dns_msg}", "ok" if dns_ok else "warn")
-        self.draw()
-
-    def do_default(self):
-        """Переключение на DNS по умолчанию (без проксирования)."""
-        if not self.is_root:
-            self._log("Нет прав root", "err")
-            self.draw()
-            return
-        self._step("Отключаю dnscrypt-proxy...")
-        self.draw()
-        ok, msg = stop_services()
-        if ok:
-            self._log(msg, "ok")
-            self.current_server = None
-        else:
-            self._log(f"Ошибка: {msg}", "err")
-        self._refresh_statuses()
         self.draw()
 
     def do_ping(self):
@@ -585,31 +551,18 @@ class App:
             if key in (ord("q"), ord("Q")):
                 break
             elif key == curses.KEY_UP:
-                if self.selected == -1:
-                    self.selected = len(self.servers) - 1 if self.servers else -1
-                elif self.selected == 0:
-                    self.selected = -1
-                else:
-                    self.selected -= 1
+                if self.servers:
+                    self.selected = (self.selected - 1) % len(self.servers)
                 self.draw()
             elif key == curses.KEY_DOWN:
-                if self.selected == -1:
-                    self.selected = 0 if self.servers else -1
-                elif self.selected >= len(self.servers) - 1:
-                    self.selected = -1
-                else:
-                    self.selected += 1
-                self.draw()
-            elif key == ord("0"):
-                self.selected = -1
+                if self.servers:
+                    self.selected = (self.selected + 1) % len(self.servers)
                 self.draw()
             elif ord("1") <= key <= ord("9") and (key - ord("1")) < len(self.servers):
                 self.selected = key - ord("1")
                 self.draw()
             elif key in (curses.KEY_ENTER, 10, 13):
-                if self.selected == -1:
-                    self.do_default()
-                elif self.servers:
+                if self.servers:
                     self.apply_server(self.servers[self.selected])
             elif key in (ord("r"), ord("R")):
                 self.do_recheck()
