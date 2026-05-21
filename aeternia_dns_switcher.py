@@ -593,10 +593,76 @@ def cli_update():
         sys.exit(1)
 
 
+def cli_uninstall():
+    """Удаление через командную строку: sudo aeternia-dns-switcher --uninstall"""
+    print_banner()
+    if os.geteuid() != 0:
+        print(f"  {_RED}Требуются права root.{_RESET}")
+        print("  Запустите: sudo aeternia-dns-switcher --uninstall")
+        sys.exit(1)
+
+    print(f"  {_YELLOW}Будут удалены:{_RESET}")
+    print("    • /usr/local/bin/aeternia_dns_switcher.py")
+    print("    • /usr/local/bin/dns_utils.py")
+    print("    • /usr/local/bin/aeternia-dns-switcher")
+    print("    • /usr/share/pixmaps/aeternia-dns-switcher.jpg")
+    print("    • ~/.local/share/applications/aeternia-dns-switcher.desktop")
+    print("    • Ярлык с рабочего стола")
+    print()
+    ans = input("  Удалить Aeternia DNS Switcher? [y/N]: ").strip()
+    if ans.lower() != "y":
+        print("  Отменено.")
+        sys.exit(0)
+
+    import pathlib
+    files = [
+        "/usr/local/bin/aeternia_dns_switcher.py",
+        "/usr/local/bin/dns_utils.py",
+        "/usr/local/bin/aeternia-dns-switcher",
+        "/usr/share/pixmaps/aeternia-dns-switcher.jpg",
+        "/etc/sudoers.d/aeternia-dns-switcher",
+    ]
+    # Файлы пользователя
+    real_user = os.environ.get("SUDO_USER", os.environ.get("USER", ""))
+    if real_user:
+        home = pathlib.Path(f"~{real_user}").expanduser()
+        files.append(str(home / ".local/share/applications/aeternia-dns-switcher.desktop"))
+        # Ярлык на рабочем столе
+        try:
+            import subprocess
+            r = subprocess.run(
+                ["sudo", "-u", real_user, "xdg-user-dir", "DESKTOP"],
+                capture_output=True, text=True, timeout=5
+            )
+            desktop = r.stdout.strip() or str(home / "Desktop")
+        except Exception:
+            desktop = str(home / "Desktop")
+        files.append(f"{desktop}/aeternia-dns-switcher.desktop")
+
+    removed = 0
+    for f in files:
+        p = pathlib.Path(f)
+        if p.exists():
+            p.unlink()
+            removed += 1
+            print(f"  {_GREEN}✓ {f}{_RESET}")
+
+    print()
+    if removed:
+        print(f"  {_GREEN}✓ Aeternia DNS Switcher удалён ({removed} файлов){_RESET}")
+    else:
+        print(f"  {_YELLOW}Файлы не найдены — возможно, уже удалено{_RESET}")
+
+
 def main():
     # CLI: --update
-    if len(sys.argv) > 1 and sys.argv[1] in ("--update", "-u", "update"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("--update", "update"):
         cli_update()
+        sys.exit(0)
+
+    # CLI: --uninstall
+    if len(sys.argv) > 1 and sys.argv[1] in ("--uninstall", "uninstall", "--remove"):
+        cli_uninstall()
         sys.exit(0)
 
     if not pre_flight_check():

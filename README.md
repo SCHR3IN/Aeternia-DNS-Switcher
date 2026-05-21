@@ -61,7 +61,7 @@ sudo aeternia-dns-switcher --update
 ### Удаление
 
 ```bash
-sudo bash install.sh --uninstall
+sudo aeternia-dns-switcher --uninstall
 ```
 
 ---
