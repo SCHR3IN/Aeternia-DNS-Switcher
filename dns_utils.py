@@ -217,6 +217,32 @@ def restart_services() -> tuple[bool, str]:
     return True, "OK"
 
 
+def stop_services() -> tuple[bool, str]:
+    """Останавливает dnscrypt-proxy и возвращает системный DNS по умолчанию."""
+    for svc in ["dnscrypt-proxy.service", "dnscrypt-proxy.socket"]:
+        try:
+            run_cmd(["systemctl", "stop", svc])
+            run_cmd(["systemctl", "disable", svc])
+        except FileNotFoundError:
+            return False, "systemctl не найден"
+    # Перезапускаем systemd-resolved для восстановления DNS по умолчанию
+    run_cmd(["systemctl", "restart", "systemd-resolved"], timeout=10)
+    return True, "dnscrypt-proxy остановлен, DNS по умолчанию"
+
+
+def enable_services() -> tuple[bool, str]:
+    """Включает и запускает dnscrypt-proxy."""
+    for svc in ["dnscrypt-proxy.socket", "dnscrypt-proxy.service"]:
+        try:
+            run_cmd(["systemctl", "enable", svc])
+            r = run_cmd(["systemctl", "start", svc])
+            if r.returncode != 0:
+                return False, f"Ошибка запуска {svc}: {r.stderr.strip()}"
+        except FileNotFoundError:
+            return False, "systemctl не найден"
+    return True, "OK"
+
+
 def get_service_statuses() -> dict:
     out = {}
     for svc in ["dnscrypt-proxy.socket", "dnscrypt-proxy.service"]:
