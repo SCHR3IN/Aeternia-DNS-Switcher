@@ -193,6 +193,9 @@ class App:
         except Exception as e:
             self._log(f"Ошибка чтения конфига: {e}", "err")
         self._refresh_statuses()
+        # Автоматический пинг при запуске
+        self._log("Измеряю пинг до серверов...", "step")
+        self.pings = measure_all_pings(self.servers)
 
     def _refresh_statuses(self):
         self.svc_statuses = get_service_statuses()
@@ -417,6 +420,10 @@ class App:
         else:
             self._log(f"DNS: {dns_msg}", "warn")
             self._log("Сервис работает, DNS не прошёл — проверьте сеть", "warn")
+
+        # Обновляем пинг после переключения
+        self._step("Обновляю пинг...")
+        self.pings = measure_all_pings(self.servers)
         self.draw()
 
     def do_rollback(self):
