@@ -59,27 +59,40 @@ sudo bash install.sh
 
 #### Установка
 
-```bash
-# Установить dnscrypt-proxy
-brew install dnscrypt-proxy
+**1. Установить dnscrypt-proxy:**
 
-# Скачать программу
+```bash
+brew install dnscrypt-proxy
+```
+
+**2. Скачать программу:**
+
+```bash
 git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
 cd Aeternia-DNS-Switcher
+```
 
-# Скопировать скрипты
+**3. Скопировать скрипты:**
+
+```bash
 sudo cp aeternia_dns_switcher.py dns_utils.py /usr/local/bin/
 sudo chmod +x /usr/local/bin/aeternia_dns_switcher.py
+```
 
-# Создать лаунчер
+**4. Создать лаунчер:**
+
+```bash
 sudo tee /usr/local/bin/aeternia-dns-switcher > /dev/null << 'EOF'
 #!/bin/bash
 sudo python3 /usr/local/bin/aeternia_dns_switcher.py "$@"
 EOF
 sudo chmod +x /usr/local/bin/aeternia-dns-switcher
+```
 
-# Запустить сервис
-brew services start dnscrypt-proxy
+**5. Запустить сервис:**
+
+```bash
+sudo brew services start dnscrypt-proxy
 ```
 
 ### Обновление
