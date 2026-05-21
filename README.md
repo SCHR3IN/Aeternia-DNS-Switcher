@@ -246,7 +246,6 @@ ASTRONIA_DNS/
 ├── install.sh                    # Установщик (вызывается из installer)
 ├── build_installer.sh            # Сборщик единого установщика
 ├── aeternia-dns-installer.sh     # Готовый self-extracting установщик
-├── check_dns_ids.py              # Утилита для брутфорса/проверки рабочих ID
 ├── logo.png                      # Логотип / иконка приложения
 ├── VERSION                       # Файл версии (для автообновлений)
 └── CHANGELOG.md                  # История изменений
