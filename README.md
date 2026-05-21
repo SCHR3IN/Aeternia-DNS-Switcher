@@ -52,91 +52,26 @@ sudo bash install.sh
 
 ### macOS
 
-#### Предварительные требования
+#### Быстрая установка (одна команда)
 
-- [Homebrew](https://brew.sh)
-- Python 3.8+
+Предварительно убедитесь, что у вас установлен [Homebrew](https://brew.sh). Затем выполните команду в терминале:
 
-#### Установка
+```bash
+brew install dnscrypt-proxy && sudo brew services start dnscrypt-proxy && pip3 install certifi --break-system-packages && curl -fsSL https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/aeternia-dns-installer.sh -o /tmp/aeternia-install.sh && sudo bash /tmp/aeternia-install.sh
+```
 
-**1. Установить dnscrypt-proxy:**
+Установщик сам скопирует скрипты, создаст `.app` бандл в `/Applications`, сгенерирует иконку и настроит лаунчер.
+
+#### Установка из репозитория
 
 ```bash
 brew install dnscrypt-proxy
-```
+sudo brew services start dnscrypt-proxy
+pip3 install certifi --break-system-packages
 
-**2. Скачать программу:**
-
-```bash
 git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
 cd Aeternia-DNS-Switcher
-```
-
-**3. Скопировать скрипты:**
-
-```bash
-sudo cp aeternia_dns_switcher.py dns_utils.py /usr/local/bin/
-sudo chmod +x /usr/local/bin/aeternia_dns_switcher.py
-```
-
-**4. Создать лаунчер:**
-
-```bash
-sudo tee /usr/local/bin/aeternia-dns-switcher > /dev/null << 'EOF'
-#!/bin/bash
-sudo python3 /usr/local/bin/aeternia_dns_switcher.py "$@"
-EOF
-sudo chmod +x /usr/local/bin/aeternia-dns-switcher
-```
-
-**5. Запустить сервис:**
-
-```bash
-sudo brew services start dnscrypt-proxy
-```
-
-**6. Исправить SSL-сертификаты (для проверки обновлений):**
-
-```bash
-pip3 install certifi
-```
-
-**7. Создать иконку в Launchpad (опционально):**
-
-```bash
-sudo mkdir -p "/Applications/Aeternia DNS.app/Contents/MacOS"
-sudo mkdir -p "/Applications/Aeternia DNS.app/Contents/Resources"
-```
-
-```bash
-sudo tee "/Applications/Aeternia DNS.app/Contents/MacOS/launcher" > /dev/null << 'SCRIPT'
-#!/bin/bash
-open -a Terminal.app /usr/local/bin/aeternia-dns-switcher
-SCRIPT
-sudo chmod +x "/Applications/Aeternia DNS.app/Contents/MacOS/launcher"
-```
-
-```bash
-sudo tee "/Applications/Aeternia DNS.app/Contents/Info.plist" > /dev/null << 'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>CFBundleExecutable</key>
-    <string>launcher</string>
-    <key>CFBundleName</key>
-    <string>Aeternia DNS</string>
-    <key>CFBundleIconFile</key>
-    <string>icon</string>
-    <key>CFBundleIdentifier</key>
-    <string>space.aeternia.dns-switcher</string>
-</dict>
-</plist>
-PLIST
-```
-
-```bash
-sips -s format icns logo.png --out "/Applications/Aeternia DNS.app/Contents/Resources/icon.icns" 2>/dev/null || cp logo.png "/Applications/Aeternia DNS.app/Contents/Resources/icon.png"
+sudo bash install.sh
 ```
 
 ### Обновление
