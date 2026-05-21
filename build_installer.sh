@@ -52,14 +52,18 @@ echo -e "${CYAN}[1/3] Распаковка файлов...${RESET}"
 
 HEADER_EOF
 
-# Вставляем base64-данные
+# Вставляем base64-данные и используем python для платформонезависимого декодирования
 cat >> "$OUT" << PAYLOAD_EOF
 
 # --- Embedded files (base64) ---
-echo "$B64_PY" | base64 -d > "\$TMPDIR/aeternia_dns_switcher.py"
-echo "$B64_UTILS" | base64 -d > "\$TMPDIR/dns_utils.py"
-echo "$B64_INSTALL" | base64 -d > "\$TMPDIR/install.sh"
-echo "$B64_LOGO" | base64 -d > "\$TMPDIR/logo.png"
+decode_base64() {
+    python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))"
+}
+
+echo "$B64_PY" | decode_base64 > "\$TMPDIR/aeternia_dns_switcher.py"
+echo "$B64_UTILS" | decode_base64 > "\$TMPDIR/dns_utils.py"
+echo "$B64_INSTALL" | decode_base64 > "\$TMPDIR/install.sh"
+echo "$B64_LOGO" | decode_base64 > "\$TMPDIR/logo.png"
 
 PAYLOAD_EOF
 
@@ -70,35 +74,8 @@ echo -e "${GREEN}  ✓ Файлы распакованы${RESET}"
 echo -e "${CYAN}[2/3] Запускаю установщик...${RESET}"
 echo
 
-# Запускаем основной install.sh
+# Запускаем основной install.sh (он сам обрабатывает иконки для Linux и macOS)
 bash "$TMPDIR/install.sh"
-
-echo
-echo -e "${CYAN}[3/3] Установка логотипа...${RESET}"
-
-# Копируем logo.png для иконки приложения
-ICON_SIZES_DIR="/usr/share/icons/hicolor"
-for SIZE in 64 128 256; do
-    ICON_DIR="$ICON_SIZES_DIR/${SIZE}x${SIZE}/apps"
-    mkdir -p "$ICON_DIR"
-    if command -v convert &>/dev/null; then
-        convert "$TMPDIR/logo.png" -resize ${SIZE}x${SIZE} "$ICON_DIR/aeternia-dns-switcher.png" 2>/dev/null && \
-            echo -e "  ${GREEN}✓ Иконка ${SIZE}x${SIZE}${RESET}" || true
-    fi
-done
-
-# Если нет imagemagick — копируем jpg напрямую
-if ! command -v convert &>/dev/null; then
-    PIXMAP_DIR="/usr/share/pixmaps"
-    mkdir -p "$PIXMAP_DIR"
-    cp "$TMPDIR/logo.png" "$PIXMAP_DIR/aeternia-dns-switcher.jpg"
-    echo -e "  ${GREEN}✓ Логотип установлен в $PIXMAP_DIR${RESET}"
-    echo -e "  Совет: установите imagemagick для иконок в HD:"
-    echo -e "    sudo apt install imagemagick"
-fi
-
-# Обновляем кеш иконок
-gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
 echo
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════${RESET}"
@@ -106,7 +83,7 @@ echo -e "${GREEN}${BOLD}  ✓ Aeternia DNS Switcher успешно устано�
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════${RESET}"
 echo
 echo "  Запуск из терминала:  aeternia-dns-switcher"
-echo "  Или найдите в меню приложений: «Aeternia DNS»"
+echo "  Или найдите в меню приложений/Launchpad: «Aeternia DNS»"
 echo
 FOOTER_EOF
 
@@ -115,6 +92,6 @@ chmod +x "$OUT"
 SIZE=$(du -h "$OUT" | cut -f1)
 echo
 echo "✓ Установщик собран: $OUT ($SIZE)"
-echo "  Для установки на Ubuntu:"
+echo "  Для установки:"
 echo "    chmod +x aeternia-dns-installer.sh"
 echo "    sudo ./aeternia-dns-installer.sh"
