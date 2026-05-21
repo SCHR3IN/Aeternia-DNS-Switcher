@@ -34,9 +34,13 @@ _RESET = "\033[0m"
 
 
 def print_banner():
+    title = f"Aeternia DNS Switcher  v{VERSION}"
+    pad = 45 - len(title)
+    left = pad // 2
+    right = pad - left
     print(f"{_CYAN}{_BOLD}")
     print("╔═══════════════════════════════════════════════╗")
-    print("║         Aeternia DNS Switcher  v2.0           ║")
+    print(f"║{' ' * left}{title}{' ' * right}║")
     print("╚═══════════════════════════════════════════════╝")
     print(f"{_RESET}")
 

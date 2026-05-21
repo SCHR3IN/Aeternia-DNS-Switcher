@@ -5,20 +5,20 @@ set -e
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUT="$SRC_DIR/aeternia-dns-installer.sh"
 
-echo "=== Сборка единого установщика ==="
+# Читаем версию
+VER=$(cat "$SRC_DIR/VERSION" | tr -d '\n\r')
+echo "=== Сборка установщика v$VER ==="
 
 # Кодируем файлы в base64
 B64_PY=$(base64 -w0 "$SRC_DIR/aeternia_dns_switcher.py")
 B64_UTILS=$(base64 -w0 "$SRC_DIR/dns_utils.py")
 B64_INSTALL=$(base64 -w0 "$SRC_DIR/install.sh")
-B64_SVG=$(base64 -w0 "$SRC_DIR/aeternia-dns-switcher.svg")
 B64_LOGO=$(base64 -w0 "$SRC_DIR/logo.jpg")
 
 cat > "$OUT" << 'HEADER_EOF'
 #!/usr/bin/env bash
 # ╔═══════════════════════════════════════════════════════════╗
 # ║   Aeternia DNS Switcher — Установщик (self-extracting)    ║
-# ║   Версия: 2.0                                            ║
 # ║                                                           ║
 # ║   Запуск: chmod +x aeternia-dns-installer.sh              ║
 # ║           sudo ./aeternia-dns-installer.sh                ║
@@ -33,7 +33,7 @@ RESET='\033[0m'
 
 echo -e "${CYAN}${BOLD}"
 echo "╔═══════════════════════════════════════════════════════════╗"
-echo "║       Aeternia DNS Switcher — Установка v2.0             ║"
+echo "║       Aeternia DNS Switcher — Установка               ║"
 echo "╚═══════════════════════════════════════════════════════════╝"
 echo -e "${RESET}"
 
@@ -59,7 +59,6 @@ cat >> "$OUT" << PAYLOAD_EOF
 echo "$B64_PY" | base64 -d > "\$TMPDIR/aeternia_dns_switcher.py"
 echo "$B64_UTILS" | base64 -d > "\$TMPDIR/dns_utils.py"
 echo "$B64_INSTALL" | base64 -d > "\$TMPDIR/install.sh"
-echo "$B64_SVG" | base64 -d > "\$TMPDIR/aeternia-dns-switcher.svg"
 echo "$B64_LOGO" | base64 -d > "\$TMPDIR/logo.jpg"
 
 PAYLOAD_EOF
@@ -103,7 +102,7 @@ gtk-update-icon-cache /usr/share/icons/hicolor 2>/dev/null || true
 
 echo
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}${BOLD}  ✓ Aeternia DNS Switcher v2.0 успешно установлен!${RESET}"
+echo -e "${GREEN}${BOLD}  ✓ Aeternia DNS Switcher успешно установлен!${RESET}"
 echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════${RESET}"
 echo
 echo "  Запуск из терминала:  aeternia-dns-switcher"
