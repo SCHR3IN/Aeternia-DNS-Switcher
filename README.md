@@ -1,7 +1,7 @@
 # 🪐 Aeternia DNS Switcher
 
 <p align="center">
-  <img src="logo.jpg" alt="Aeternia DNS Switcher" width="200">
+  <img src="logo.png" alt="Aeternia DNS Switcher" width="200">
 </p>
 
 <p align="center">
@@ -10,7 +10,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-2.1-blue" alt="Version">
-  <img src="https://img.shields.io/badge/platform-Ubuntu-orange" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
 
@@ -34,18 +34,52 @@
 
 ## 🚀 Установка
 
-### Быстрая установка (одна команда)
+### Ubuntu / Debian
+
+#### Быстрая установка (одна команда)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/aeternia-dns-installer.sh -o /tmp/aeternia-install.sh && sudo bash /tmp/aeternia-install.sh
 ```
 
-### Установка из репозитория
+#### Установка из репозитория
 
 ```bash
 git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
 cd Aeternia-DNS-Switcher
 sudo bash install.sh
+```
+
+### macOS
+
+#### Предварительные требования
+
+- [Homebrew](https://brew.sh)
+- Python 3.8+
+
+#### Установка
+
+```bash
+# Установить dnscrypt-proxy
+brew install dnscrypt-proxy
+
+# Скачать программу
+git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
+cd Aeternia-DNS-Switcher
+
+# Скопировать скрипты
+sudo cp aeternia_dns_switcher.py dns_utils.py /usr/local/bin/
+sudo chmod +x /usr/local/bin/aeternia_dns_switcher.py
+
+# Создать лаунчер
+sudo tee /usr/local/bin/aeternia-dns-switcher > /dev/null << 'EOF'
+#!/bin/bash
+sudo python3 /usr/local/bin/aeternia_dns_switcher.py "$@"
+EOF
+sudo chmod +x /usr/local/bin/aeternia-dns-switcher
+
+# Запустить сервис
+brew services start dnscrypt-proxy
 ```
 
 ### Обновление
@@ -60,8 +94,17 @@ sudo aeternia-dns-switcher --update
 
 ### Удаление
 
+#### Ubuntu
+
 ```bash
 sudo aeternia-dns-switcher --uninstall
+```
+
+#### macOS
+
+```bash
+sudo aeternia-dns-switcher --uninstall
+brew services stop dnscrypt-proxy  # опционально
 ```
 
 ---
@@ -173,9 +216,10 @@ sudo aeternia-dns-switcher
 
 ## ⚙️ Требования
 
-- **ОС:** Ubuntu 20.04+ (или другие дистрибутивы на базе Debian)
+- **ОС:** Ubuntu 20.04+ / macOS 12+
 - **Python:** 3.8+
 - **Права:** root (sudo) для изменения DNS
+- **macOS:** [Homebrew](https://brew.sh)
 - **Аккаунт:** [Aeternia](https://aeternia.space) (для получения ID)
 
 ---
@@ -210,7 +254,7 @@ ASTRONIA_DNS/
 ├── install.sh                    # Установщик (вызывается из installer)
 ├── build_installer.sh            # Сборщик единого установщика
 ├── aeternia-dns-installer.sh     # Готовый self-extracting установщик
-├── logo.jpg                      # Логотип / иконка приложения
+├── logo.png                      # Логотип / иконка приложения
 ├── VERSION                       # Файл версии (для автообновлений)
 └── CHANGELOG.md                  # История изменений
 ```

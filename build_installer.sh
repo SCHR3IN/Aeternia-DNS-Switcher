@@ -13,7 +13,7 @@ echo "=== Сборка установщика v$VER ==="
 B64_PY=$(base64 -w0 "$SRC_DIR/aeternia_dns_switcher.py")
 B64_UTILS=$(base64 -w0 "$SRC_DIR/dns_utils.py")
 B64_INSTALL=$(base64 -w0 "$SRC_DIR/install.sh")
-B64_LOGO=$(base64 -w0 "$SRC_DIR/logo.jpg")
+B64_LOGO=$(base64 -w0 "$SRC_DIR/logo.png")
 
 cat > "$OUT" << 'HEADER_EOF'
 #!/usr/bin/env bash
@@ -59,7 +59,7 @@ cat >> "$OUT" << PAYLOAD_EOF
 echo "$B64_PY" | base64 -d > "\$TMPDIR/aeternia_dns_switcher.py"
 echo "$B64_UTILS" | base64 -d > "\$TMPDIR/dns_utils.py"
 echo "$B64_INSTALL" | base64 -d > "\$TMPDIR/install.sh"
-echo "$B64_LOGO" | base64 -d > "\$TMPDIR/logo.jpg"
+echo "$B64_LOGO" | base64 -d > "\$TMPDIR/logo.png"
 
 PAYLOAD_EOF
 
@@ -76,13 +76,13 @@ bash "$TMPDIR/install.sh"
 echo
 echo -e "${CYAN}[3/3] Установка логотипа...${RESET}"
 
-# Копируем logo.jpg для иконки приложения
+# Копируем logo.png для иконки приложения
 ICON_SIZES_DIR="/usr/share/icons/hicolor"
 for SIZE in 64 128 256; do
     ICON_DIR="$ICON_SIZES_DIR/${SIZE}x${SIZE}/apps"
     mkdir -p "$ICON_DIR"
     if command -v convert &>/dev/null; then
-        convert "$TMPDIR/logo.jpg" -resize ${SIZE}x${SIZE} "$ICON_DIR/aeternia-dns-switcher.png" 2>/dev/null && \
+        convert "$TMPDIR/logo.png" -resize ${SIZE}x${SIZE} "$ICON_DIR/aeternia-dns-switcher.png" 2>/dev/null && \
             echo -e "  ${GREEN}✓ Иконка ${SIZE}x${SIZE}${RESET}" || true
     fi
 done
@@ -91,7 +91,7 @@ done
 if ! command -v convert &>/dev/null; then
     PIXMAP_DIR="/usr/share/pixmaps"
     mkdir -p "$PIXMAP_DIR"
-    cp "$TMPDIR/logo.jpg" "$PIXMAP_DIR/aeternia-dns-switcher.jpg"
+    cp "$TMPDIR/logo.png" "$PIXMAP_DIR/aeternia-dns-switcher.jpg"
     echo -e "  ${GREEN}✓ Логотип установлен в $PIXMAP_DIR${RESET}"
     echo -e "  Совет: установите imagemagick для иконок в HD:"
     echo -e "    sudo apt install imagemagick"

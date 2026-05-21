@@ -22,6 +22,7 @@ from dns_utils import (
     check_dns, rollback_config,
     measure_ping, measure_all_pings,
     VERSION, check_for_update, run_update,
+    IS_MACOS, IS_LINUX,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -287,7 +288,8 @@ class App:
         self._put(row, 2, "Текущий DNS:    ")
         self._put(row, 18, cur_name, curses.A_BOLD)
         row += 1
-        self._put(row, 2, "Локальный DNS:  127.0.2.1")
+        listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
+        self._put(row, 2, f"Локальный DNS:  {listen_addr}")
         row += 1
         self._put(row, 2, "dnscrypt-proxy: ")
         self._put(row, 18, svc_label, svc_color)
@@ -435,7 +437,8 @@ class App:
         self.draw()
 
         # DNS test
-        self._step("Проверяю DNS: dig google.com @127.0.2.1...")
+        listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
+        self._step(f"Проверяю DNS: dig google.com @{listen_addr}...")
         dns_ok, dns_msg = check_dns()
         if dns_ok:
             self._log(f"DNS OK: {dns_msg}", "ok")

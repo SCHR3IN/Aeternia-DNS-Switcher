@@ -9,7 +9,7 @@ INSTALL_BIN="/usr/local/bin"
 
 PY_SCRIPT="$SRC_DIR/aeternia_dns_switcher.py"
 PY_UTILS="$SRC_DIR/dns_utils.py"
-ICON_SRC="$SRC_DIR/logo.jpg"
+ICON_SRC="$SRC_DIR/logo.png"
 
 PY_DST="$INSTALL_BIN/aeternia_dns_switcher.py"
 UTILS_DST="$INSTALL_BIN/dns_utils.py"
@@ -56,7 +56,7 @@ if [[ ! -f "$PY_UTILS" ]]; then
 fi
 
 if [[ ! -f "$ICON_SRC" ]]; then
-    echo "Не найден logo.jpg рядом с install.sh"
+    echo "Не найден logo.png рядом с install.sh"
     exit 1
 fi
 
@@ -108,7 +108,7 @@ fi
 LAUNCHER_EOF
 chmod 755 "$LAUNCHER_DST"
 
-# 3. Иконка (logo.jpg)
+# 3. Иконка (logo.png)
 echo "[4/6] Устанавливаю иконку ..."
 mkdir -p "$ICON_DIR"
 install -m 644 "$ICON_SRC" "$ICON_DST"
