@@ -9,14 +9,14 @@ INSTALL_BIN="/usr/local/bin"
 
 PY_SCRIPT="$SRC_DIR/aeternia_dns_switcher.py"
 PY_UTILS="$SRC_DIR/dns_utils.py"
-ICON_SRC="$SRC_DIR/aeternia-dns-switcher.svg"
+ICON_SRC="$SRC_DIR/logo.jpg"
 
 PY_DST="$INSTALL_BIN/aeternia_dns_switcher.py"
 UTILS_DST="$INSTALL_BIN/dns_utils.py"
 LAUNCHER_DST="$INSTALL_BIN/aeternia-dns-switcher"
 
-ICON_DIR="/usr/share/icons/hicolor/scalable/apps"
-ICON_DST="$ICON_DIR/aeternia-dns-switcher.svg"
+ICON_DIR="/usr/share/pixmaps"
+ICON_DST="$ICON_DIR/aeternia-dns-switcher.jpg"
 
 # Определяем реального пользователя (при запуске через sudo)
 REAL_USER="${SUDO_USER:-$USER}"
@@ -34,7 +34,6 @@ if [[ "$1" == "--uninstall" || "$1" == "-u" ]]; then
     rm -f "$PY_DST" "$UTILS_DST" "$LAUNCHER_DST" "$ICON_DST"
     rm -f "$APP_DST" "$DESKTOP_DIR/aeternia-dns-switcher.desktop"
     rm -f /etc/sudoers.d/aeternia-dns-switcher
-    gtk-update-icon-cache "$ICON_DIR" 2>/dev/null || true
     update-desktop-database "$APP_DIR" 2>/dev/null || true
     echo "Удалено."
     exit 0
@@ -57,13 +56,13 @@ if [[ ! -f "$PY_UTILS" ]]; then
 fi
 
 if [[ ! -f "$ICON_SRC" ]]; then
-    echo "Не найден aeternia-dns-switcher.svg рядом с install.sh"
+    echo "Не найден logo.jpg рядом с install.sh"
     exit 1
 fi
 
 # ─── Установка ───────────────────────────────────────────────────────────────
 
-echo "=== Установка Aeternia DNS Switcher v2 ==="
+echo "=== Установка Aeternia DNS Switcher v2.1 ==="
 echo
 
 # 1. Python-скрипты
@@ -109,11 +108,10 @@ fi
 LAUNCHER_EOF
 chmod 755 "$LAUNCHER_DST"
 
-# 3. Иконка
+# 3. Иконка (logo.jpg)
 echo "[4/6] Устанавливаю иконку ..."
 mkdir -p "$ICON_DIR"
 install -m 644 "$ICON_SRC" "$ICON_DST"
-gtk-update-icon-cache "$ICON_DIR" 2>/dev/null || true
 
 # 4. .desktop файл (в меню приложений)
 echo "[5/6] Создаю .desktop файл ..."
@@ -127,7 +125,7 @@ Name[ru]=Aeternia DNS Switcher
 Comment=Переключение Aeternia DoH DNS серверов
 Comment[ru]=Переключение Aeternia DoH DNS серверов
 Exec=$LAUNCHER_DST
-Icon=aeternia-dns-switcher
+Icon=/usr/share/pixmaps/aeternia-dns-switcher.jpg
 Terminal=false
 Categories=Network;System;Settings;
 Keywords=dns;dnscrypt;vpn;aeternia;proxy;
