@@ -252,7 +252,7 @@ def check_config_file() -> tuple[bool, str]:
 def restart_services() -> tuple[bool, str]:
     if IS_MACOS:
         try:
-            r = run_cmd(["brew", "services", "restart", "dnscrypt-proxy"])
+            r = run_cmd(["sudo", "brew", "services", "restart", "dnscrypt-proxy"])
             if r.returncode != 0:
                 return False, f"Ошибка рестарта: {r.stderr.strip()}"
             return True, "OK"
@@ -273,7 +273,7 @@ def stop_services() -> tuple[bool, str]:
     """Останавливает dnscrypt-proxy."""
     if IS_MACOS:
         try:
-            run_cmd(["brew", "services", "stop", "dnscrypt-proxy"])
+            run_cmd(["sudo", "brew", "services", "stop", "dnscrypt-proxy"])
             return True, "dnscrypt-proxy остановлен"
         except FileNotFoundError:
             return False, "brew не найден"
@@ -292,7 +292,7 @@ def enable_services() -> tuple[bool, str]:
     """Включает и запускает dnscrypt-proxy."""
     if IS_MACOS:
         try:
-            r = run_cmd(["brew", "services", "start", "dnscrypt-proxy"])
+            r = run_cmd(["sudo", "brew", "services", "start", "dnscrypt-proxy"])
             if r.returncode != 0:
                 return False, f"Ошибка запуска: {r.stderr.strip()}"
             return True, "OK"
@@ -313,15 +313,15 @@ def enable_services() -> tuple[bool, str]:
 def get_service_statuses() -> dict:
     if IS_MACOS:
         try:
-            r = run_cmd(["brew", "services", "list"], timeout=5)
-            for line in r.stdout.splitlines():
-                if "dnscrypt-proxy" in line:
-                    parts = line.split()
-                    status = parts[1] if len(parts) > 1 else "unknown"
-                    # brew services: started, none, error
-                    mapped = "active" if status == "started" else status
-                    return {"dnscrypt-proxy": mapped}
-            return {"dnscrypt-proxy": "not found"}
+            # Проверяем через pgrep (brew services может показывать none даже когда запущен через sudo)
+            r = run_cmd(["pgrep", "-x", "dnscrypt-proxy"], timeout=3)
+            if r.returncode == 0:
+                return {"dnscrypt-proxy": "active"}
+            # Fallback: проверяем launchctl
+            r = run_cmd(["sudo", "launchctl", "list"], timeout=5)
+            if "dnscrypt" in r.stdout.lower():
+                return {"dnscrypt-proxy": "active"}
+            return {"dnscrypt-proxy": "none"}
         except Exception:
             return {"dnscrypt-proxy": "unknown"}
     else:
