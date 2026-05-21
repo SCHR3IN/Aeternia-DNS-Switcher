@@ -633,6 +633,7 @@ def cli_uninstall():
         "/usr/local/bin/dns_utils.py",
         "/usr/local/bin/aeternia-dns-switcher",
         "/usr/share/pixmaps/aeternia-dns-switcher.jpg",
+        "/usr/share/icons/hicolor/scalable/apps/aeternia-dns-switcher.svg",
         "/etc/sudoers.d/aeternia-dns-switcher",
     ]
     # Файлы пользователя
