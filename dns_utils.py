@@ -248,6 +248,59 @@ def check_config_file() -> tuple[bool, str]:
     except FileNotFoundError:
         return False, "dnscrypt-proxy не найден в PATH"
 
+# ─── macOS DNS configuration ─────────────────────────────────────────────────
+
+def _macos_get_active_service() -> str:
+    """Определяет активный сетевой интерфейс на macOS (Wi-Fi, Ethernet и т.д.)."""
+    try:
+        # Получаем маршрут по умолчанию → интерфейс
+        r = run_cmd(["route", "-n", "get", "default"], timeout=5)
+        iface = ""
+        for line in r.stdout.splitlines():
+            if "interface:" in line:
+                iface = line.split(":")[-1].strip()
+                break
+        if not iface:
+            return "Wi-Fi"  # fallback
+        # Находим название сервиса по интерфейсу
+        r = run_cmd(["networksetup", "-listallhardwareports"], timeout=5)
+        lines = r.stdout.splitlines()
+        for i, line in enumerate(lines):
+            if f"Device: {iface}" in line and i > 0:
+                for j in range(i - 1, -1, -1):
+                    if "Hardware Port:" in lines[j]:
+                        return lines[j].split(":", 1)[-1].strip()
+        return "Wi-Fi"
+    except Exception:
+        return "Wi-Fi"
+
+
+def macos_set_dns(address: str = "127.0.0.1") -> tuple[bool, str]:
+    """Устанавливает системный DNS на macOS."""
+    service = _macos_get_active_service()
+    try:
+        r = run_cmd(["networksetup", "-setdnsservers", service, address])
+        if r.returncode != 0:
+            return False, f"networksetup failed: {r.stderr.strip()}"
+        # Сброс DNS-кэша
+        run_cmd(["dscacheutil", "-flushcache"])
+        run_cmd(["sudo", "killall", "-HUP", "mDNSResponder"])
+        return True, f"DNS {service} → {address}"
+    except Exception as e:
+        return False, str(e)
+
+
+def macos_reset_dns() -> tuple[bool, str]:
+    """Сбрасывает DNS на автоматический (DHCP) на macOS."""
+    service = _macos_get_active_service()
+    try:
+        r = run_cmd(["networksetup", "-setdnsservers", service, "empty"])
+        run_cmd(["dscacheutil", "-flushcache"])
+        run_cmd(["sudo", "killall", "-HUP", "mDNSResponder"])
+        return True, f"DNS {service} → auto (DHCP)"
+    except Exception as e:
+        return False, str(e)
+
 
 def restart_services() -> tuple[bool, str]:
     if IS_MACOS:

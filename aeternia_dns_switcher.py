@@ -23,6 +23,7 @@ from dns_utils import (
     measure_ping, measure_all_pings,
     VERSION, check_for_update, run_update,
     IS_MACOS, IS_LINUX,
+    macos_set_dns, macos_reset_dns,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -424,6 +425,16 @@ class App:
         self.draw()
 
         time.sleep(2)
+
+        # macOS: перенаправляем системный DNS на 127.0.0.1
+        if IS_MACOS:
+            self._step("Настраиваю системный DNS → 127.0.0.1...")
+            dns_ok, dns_msg = macos_set_dns("127.0.0.1")
+            if dns_ok:
+                self._log(dns_msg, "ok")
+            else:
+                self._log(f"DNS: {dns_msg}", "warn")
+            self.draw()
 
         # Status
         self._refresh_statuses()
