@@ -20,6 +20,7 @@ from dns_utils import (
     check_config_file, restart_services, get_service_statuses,
     check_dns, rollback_config,
     measure_ping, measure_all_pings,
+    VERSION, check_for_update, run_update,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -245,7 +246,7 @@ class App:
         row = 0
 
         # Title
-        title = f"  Aeternia DNS Switcher v2  [ID: {self.user_id}]  "
+        title = f"  Aeternia DNS Switcher v{VERSION}  [ID: {self.user_id}]  "
         self._put(row, 0, "─" * (w - 1), self._cp(4))
         row += 1
         self._put(row, max(0, (w - len(title)) // 2), title, self._cp(4, bold=True))
@@ -321,7 +322,7 @@ class App:
                 row += 1
 
         # Keys bar
-        keys = " ↑↓ выбор  Enter примен.  A добавить  D удалить  P пинг  R проверить  B откат  Q выход "
+        keys = " ↑↓ выбор  Enter примен.  A доб.  D удал.  P пинг  U обновить  R проверить  B откат  Q выход "
         self._put(h - 1, 0, keys.ljust(w - 1), self._cp(6))
         self.scr.refresh()
 
@@ -498,6 +499,30 @@ class App:
             self._log("Удаление отменено", "info")
         self.draw()
 
+    def do_update(self):
+        if not self.is_root:
+            self._log("Нет прав root для обновления", "err")
+            self.draw()
+            return
+        self._step(f"Проверяю обновления (текущая: v{VERSION})...")
+        has_update, remote, err = check_for_update()
+        if err:
+            self._log(f"Ошибка проверки: {err}", "err")
+            self.draw()
+            return
+        if not has_update:
+            self._log(f"Установлена последняя версия (v{VERSION})", "ok")
+            self.draw()
+            return
+        self._log(f"Доступна v{remote}! Устанавливаю...", "warn")
+        self.draw()
+        ok, msg = run_update()
+        if ok:
+            self._log(f"✓ {msg}", "ok")
+        else:
+            self._log(f"Ошибка: {msg}", "err")
+        self.draw()
+
     # ── Main loop ────────────────────────────────────────────────────────────
 
     def run(self):
@@ -532,11 +557,44 @@ class App:
                 self.do_add_server()
             elif key in (ord("d"), ord("D")):
                 self.do_delete_server()
+            elif key in (ord("u"), ord("U")):
+                self.do_update()
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
+def cli_update():
+    """Обновление через командную строку: sudo aeternia-dns-switcher --update"""
+    print_banner()
+    print(f"  Текущая версия: {VERSION}")
+    print(f"  Проверяю обновления...")
+    has_update, remote, err = check_for_update()
+    if err:
+        print(f"  {_RED}Ошибка: {err}{_RESET}")
+        sys.exit(1)
+    if not has_update:
+        print(f"  {_GREEN}✓ Установлена последняя версия ({VERSION}){_RESET}")
+        sys.exit(0)
+    print(f"  {_YELLOW}Доступна версия {remote} (текущая: {VERSION}){_RESET}")
+    ans = input("  Обновить? [Y/n]: ").strip()
+    if ans.lower() == "n":
+        print("  Отменено.")
+        sys.exit(0)
+    print(f"  {_CYAN}Скачиваю и устанавливаю...{_RESET}")
+    ok, msg = run_update()
+    if ok:
+        print(f"  {_GREEN}✓ {msg}{_RESET}")
+    else:
+        print(f"  {_RED}✗ {msg}{_RESET}")
+        sys.exit(1)
+
+
 def main():
+    # CLI: --update
+    if len(sys.argv) > 1 and sys.argv[1] in ("--update", "-u", "update"):
+        cli_update()
+        sys.exit(0)
+
     if not pre_flight_check():
         sys.exit(0)
 

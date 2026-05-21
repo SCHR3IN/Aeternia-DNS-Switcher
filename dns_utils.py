@@ -273,3 +273,56 @@ def measure_all_pings(servers: list) -> dict:
         host = f"{s['code']}.aeternia.space"
         result[s["code"]] = measure_ping(host)
     return result
+
+
+# ─── Обновления ──────────────────────────────────────────────────────────────
+
+VERSION = "2.0.0"
+GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
+GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
+
+
+def check_for_update() -> tuple[bool, str, str]:
+    """Проверяет наличие обновлений на GitHub.
+    Returns: (has_update, remote_version, error_message)
+    """
+    try:
+        import urllib.request
+        url = f"{GITHUB_RAW}/VERSION"
+        req = urllib.request.Request(url, headers={"User-Agent": "AeterniaDNS"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            remote = resp.read().decode().strip()
+        if remote and remote != VERSION:
+            return True, remote, ""
+        return False, remote, ""
+    except Exception as e:
+        return False, "", str(e)
+
+
+def run_update() -> tuple[bool, str]:
+    """Скачивает и запускает последний установщик с GitHub."""
+    try:
+        import urllib.request
+        import tempfile
+        url = f"{GITHUB_RAW}/aeternia-dns-installer.sh"
+        req = urllib.request.Request(url, headers={"User-Agent": "AeterniaDNS"})
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+
+        tmp = Path(tempfile.mktemp(suffix=".sh", prefix="aeternia-update-"))
+        tmp.write_bytes(data)
+        tmp.chmod(0o755)
+
+        r = subprocess.run(
+            ["bash", str(tmp)],
+            capture_output=True, text=True, timeout=300
+        )
+        tmp.unlink(missing_ok=True)
+
+        if r.returncode != 0:
+            return False, f"Ошибка установки: {r.stderr[:200]}"
+        return True, "Обновление установлено. Перезапустите программу."
+    except subprocess.TimeoutExpired:
+        return False, "Timeout при установке"
+    except Exception as e:
+        return False, str(e)
