@@ -95,6 +95,50 @@ sudo chmod +x /usr/local/bin/aeternia-dns-switcher
 sudo brew services start dnscrypt-proxy
 ```
 
+**6. Исправить SSL-сертификаты (для проверки обновлений):**
+
+```bash
+pip3 install certifi
+```
+
+**7. Создать иконку в Launchpad (опционально):**
+
+```bash
+sudo mkdir -p "/Applications/Aeternia DNS.app/Contents/MacOS"
+sudo mkdir -p "/Applications/Aeternia DNS.app/Contents/Resources"
+```
+
+```bash
+sudo tee "/Applications/Aeternia DNS.app/Contents/MacOS/launcher" > /dev/null << 'SCRIPT'
+#!/bin/bash
+open -a Terminal.app /usr/local/bin/aeternia-dns-switcher
+SCRIPT
+sudo chmod +x "/Applications/Aeternia DNS.app/Contents/MacOS/launcher"
+```
+
+```bash
+sudo tee "/Applications/Aeternia DNS.app/Contents/Info.plist" > /dev/null << 'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>launcher</string>
+    <key>CFBundleName</key>
+    <string>Aeternia DNS</string>
+    <key>CFBundleIconFile</key>
+    <string>icon</string>
+    <key>CFBundleIdentifier</key>
+    <string>space.aeternia.dns-switcher</string>
+</dict>
+</plist>
+PLIST
+```
+
+```bash
+sips -s format icns logo.png --out "/Applications/Aeternia DNS.app/Contents/Resources/icon.icns" 2>/dev/null || cp logo.png "/Applications/Aeternia DNS.app/Contents/Resources/icon.png"
+```
+
 ### Обновление
 
 ```bash

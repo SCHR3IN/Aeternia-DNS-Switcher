@@ -393,6 +393,26 @@ GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
 
+def _get_ssl_context():
+    """SSL context с поддержкой macOS (certifi / unverified fallback)."""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    # macOS: Python без сертификатов — пробуем системные
+    if IS_MACOS:
+        ctx = ssl.create_default_context()
+        try:
+            ctx.load_default_certs()
+        except Exception:
+            # Fallback: отключаем верификацию (только для проверки VERSION)
+            ctx = ssl._create_unverified_context()
+        return ctx
+    return ssl.create_default_context()
+
+
 def check_for_update() -> tuple[bool, str, str]:
     """Проверяет наличие обновлений на GitHub.
     Returns: (has_update, remote_version, error_message)
@@ -401,7 +421,8 @@ def check_for_update() -> tuple[bool, str, str]:
         import urllib.request
         url = f"{GITHUB_RAW}/VERSION"
         req = urllib.request.Request(url, headers={"User-Agent": "AeterniaDNS"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        ctx = _get_ssl_context()
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as resp:
             remote = resp.read().decode().strip()
         if remote and remote != VERSION:
             return True, remote, ""
@@ -417,7 +438,8 @@ def run_update() -> tuple[bool, str]:
         import tempfile
         url = f"{GITHUB_RAW}/aeternia-dns-installer.sh"
         req = urllib.request.Request(url, headers={"User-Agent": "AeterniaDNS"})
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        ctx = _get_ssl_context()
+        with urllib.request.urlopen(req, timeout=60, context=ctx) as resp:
             data = resp.read()
 
         tmp = Path(tempfile.mktemp(suffix=".sh", prefix="aeternia-update-"))
