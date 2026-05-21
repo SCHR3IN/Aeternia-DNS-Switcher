@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.1-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.1.2-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -246,6 +246,7 @@ ASTRONIA_DNS/
 ├── install.sh                    # Установщик (вызывается из installer)
 ├── build_installer.sh            # Сборщик единого установщика
 ├── aeternia-dns-installer.sh     # Готовый self-extracting установщик
+├── check_dns_ids.py              # Утилита для брутфорса/проверки рабочих ID
 ├── logo.png                      # Логотип / иконка приложения
 ├── VERSION                       # Файл версии (для автообновлений)
 └── CHANGELOG.md                  # История изменений
