@@ -79,10 +79,17 @@ mkdir -p /etc/aeternia-dns
 echo "[3/6] Создаю лаунчер ..."
 cat > "$LAUNCHER_DST" << 'LAUNCHER_EOF'
 #!/usr/bin/env bash
-# Лаунчер Aeternia DNS Switcher — открывает терминал с sudo
+# Лаунчер Aeternia DNS Switcher
 
 PY_SCRIPT="/usr/local/bin/aeternia_dns_switcher.py"
 TITLE="Aeternia DNS Switcher"
+
+# Если переданы аргументы (--update, --help и т.д.) — запускаем напрямую
+if [[ $# -gt 0 ]]; then
+    exec sudo python3 "$PY_SCRIPT" "$@"
+fi
+
+# Интерактивный режим — открываем терминал
 CLOSE='echo; echo "  Нажмите Enter для закрытия..."; read'
 CMD="sudo python3 $PY_SCRIPT; $CLOSE"
 
