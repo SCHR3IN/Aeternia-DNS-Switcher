@@ -667,6 +667,18 @@ def cli_uninstall():
     else:
         print(f"  {_YELLOW}Файлы не найдены — возможно, уже удалено{_RESET}")
 
+    # Конфиги (servers.json с ID пользователя)
+    config_dir = pathlib.Path("/etc/aeternia-dns")
+    if config_dir.exists():
+        print()
+        ans = input("  Удалить конфигурацию серверов (/etc/aeternia-dns/)? [y/N]: ").strip()
+        if ans.lower() == "y":
+            import shutil
+            shutil.rmtree(config_dir, ignore_errors=True)
+            print(f"  {_GREEN}✓ /etc/aeternia-dns/ удалена{_RESET}")
+        else:
+            print(f"  Конфигурация сохранена (при переустановке настройки восстановятся)")
+
 
 def main():
     # CLI: --update
