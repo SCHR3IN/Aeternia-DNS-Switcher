@@ -5,6 +5,7 @@ import curses
 import os
 import sys
 import time
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -170,6 +171,7 @@ class App:
         self.current_server = None
         self.servers, self.user_id = load_servers()
         self.pings = {}
+        self._ping_thread = None
 
         self._init_curses()
         self._load_initial_state()
@@ -198,12 +200,28 @@ class App:
         except Exception as e:
             self._log(f"Ошибка чтения конфига: {e}", "err")
         self._refresh_statuses()
-        # Автоматический пинг при запуске
-        self._log("Измеряю пинг до серверов...", "step")
-        self.pings = measure_all_pings(self.servers)
+        # Асинхронный пинг при запуске (фон)
+        self._ping_background()
 
     def _refresh_statuses(self):
         self.svc_statuses = get_service_statuses()
+
+    def _ping_background(self):
+        """Запускает пинг всех серверов в фоновых потоках параллельно."""
+        def ping_one(server):
+            code = server.get("code", "")
+            host = f"{code}.aeternia.space"
+            result = measure_ping(host)
+            self.pings[code] = result
+            # Перерисовка после каждого пинга
+            try:
+                self.draw()
+            except Exception:
+                pass
+
+        for s in self.servers:
+            t = threading.Thread(target=ping_one, args=(s,), daemon=True)
+            t.start()
 
     def _log(self, msg, level="info"):
         ts = datetime.now().strftime("%H:%M:%S")
@@ -426,9 +444,8 @@ class App:
             self._log(f"DNS: {dns_msg}", "warn")
             self._log("Сервис работает, DNS не прошёл — проверьте сеть", "warn")
 
-        # Обновляем пинг после переключения
-        self._step("Обновляю пинг...")
-        self.pings = measure_all_pings(self.servers)
+        # Обновляем пинг после переключения (фон)
+        self._ping_background()
         self.draw()
 
     def do_rollback(self):
@@ -463,13 +480,9 @@ class App:
 
     def do_ping(self):
         self._step("Измеряю пинг до серверов...")
+        self.pings = {}  # Сбросим старые
         self.draw()
-        self.pings = measure_all_pings(self.servers)
-        for s in self.servers:
-            p = self.pings.get(s.get("code", ""))
-            label = f"{p:.0f} ms" if p else "timeout"
-            self._log(f"  {s['name']:12s} → {label}", "ok" if p and p < 150 else "warn")
-        self.draw()
+        self._ping_background()
 
     def do_add_server(self):
         """Выход из curses → wizard → возврат."""
