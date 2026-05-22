@@ -126,15 +126,15 @@ def add_servers_wizard() -> bool:
         print(f"    {code} — {name}")
     print()
     print("  Введите ваш Aeternia ID.")
-    print(f"  {_YELLOW}(это число из URL: /dns-query/XXXXXXXX){_RESET}")
+    print(f"  {_YELLOW}(это 8-значный hex-код из URL: /dns-query/XXXXXXXX){_RESET}")
     print()
 
     user_id = input("  Aeternia ID: ").strip()
     if not user_id:
         print(f"{_RED}ID не может быть пустым.{_RESET}")
         return False
-    if not user_id.isdigit():
-        print(f"{_RED}ID должен содержать только цифры.{_RESET}")
+    if len(user_id) != 8 or not all(c in "0123456789abcdefABCDEF" for c in user_id):
+        print(f"{_RED}ID должен быть 8-значным шестнадцатеричным числом (например, 063eb77c).{_RESET}")
         return False
 
     servers = generate_all_servers(user_id)
