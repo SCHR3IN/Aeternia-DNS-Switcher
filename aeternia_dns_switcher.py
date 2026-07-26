@@ -24,6 +24,7 @@ from dns_utils import (
     VERSION, check_for_update, run_update,
     IS_MACOS, IS_LINUX,
     macos_set_dns, macos_reset_dns,
+    stop_services, unpatch_config,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -197,8 +198,10 @@ class App:
             if self.current_server:
                 for i, s in enumerate(self.servers):
                     if s["stamp"] == self.current_server["stamp"]:
-                        self.selected = i
+                        self.selected = i + 1  # Сдвигаем на 1, так как 0 — это «Без прокси»
                         break
+            else:
+                self.selected = 0  # «Без прокси» выбран по умолчанию, если прокси не активен
         except Exception as e:
             self._log(f"Ошибка чтения конфига: {e}", "err")
         self._refresh_statuses()
@@ -306,26 +309,37 @@ class App:
         self._put(row, 20, ping_hint, self._cp(4))
         row += 1
 
-        for i, srv in enumerate(self.servers):
-            prefix = " > " if i == self.selected else "   "
-            num = f"[{i + 1}]" if i < 9 else f"[{i + 1}]"
-            label = f"{prefix}{num} {srv['name']:12s}"
+        total_items = len(self.servers) + 1
+        for idx in range(total_items):
+            if idx == 0:
+                srv_name = "Без прокси"
+                is_active = (self.current_server is None)
+                ping_s = ""
+                ping_attr = 0
+                prefix = " > " if idx == self.selected else "   "
+                label = f"{prefix}[0] {srv_name:12s}"
+            else:
+                srv = self.servers[idx - 1]
+                srv_name = srv["name"]
+                is_active = bool(
+                    self.current_server and srv["stamp"] == self.current_server["stamp"]
+                )
+                ping_s, ping_attr = self._ping_str(srv.get("code", ""))
+                prefix = " > " if idx == self.selected else "   "
+                label = f"{prefix}[{idx}] {srv_name:12s}"
 
-            ping_s, ping_attr = self._ping_str(srv.get("code", ""))
-
-            is_active = bool(
-                self.current_server and srv["stamp"] == self.current_server["stamp"]
-            )
-
-            if i == self.selected:
+            if idx == self.selected:
                 self._put(row, 0, label.ljust(min(w - 12, 28)), self._cp(5, True))
-                self._put(row, min(28, w - 12), ping_s, self._cp(5, True))
+                if idx > 0:
+                    self._put(row, min(28, w - 12), ping_s, self._cp(5, True))
             elif is_active:
                 self._put(row, 0, label, self._cp(1, True))
-                self._put(row, len(label), ping_s, ping_attr)
+                if idx > 0:
+                    self._put(row, len(label), ping_s, ping_attr)
             else:
                 self._put(row, 0, label)
-                self._put(row, len(label), ping_s, ping_attr)
+                if idx > 0:
+                    self._put(row, len(label), ping_s, ping_attr)
             row += 1
 
         row += 1
@@ -462,6 +476,64 @@ class App:
         self._ping_background()
         self.draw()
 
+    def apply_no_proxy(self):
+        if not self.is_root:
+            self._log("Нет прав root — запустите с sudo", "err")
+            self.draw()
+            return
+
+        self._step("Отключаю DNS-прокси (Без прокси)...")
+
+        # Backup
+        self._step("Создаю бэкап конфига...")
+        try:
+            bak = backup_config()
+            self.last_backup = bak
+            self._log(f"Бэкап: {bak.name}", "ok")
+        except Exception as e:
+            self._log(f"Ошибка бэкапа: {e}", "err")
+            self.draw()
+            return
+        self.draw()
+
+        # Unpatch
+        self._step("Очищаю конфиг от прокси...")
+        try:
+            cfg = read_config()
+            new_cfg = unpatch_config(cfg)
+            write_config_atomic(new_cfg)
+            self._log("Конфиг очищен", "ok")
+        except Exception as e:
+            self._log(f"Ошибка записи конфига: {e}", "err")
+            self.draw()
+            return
+        self.draw()
+
+        # Stop
+        self._step("Останавливаю dnscrypt-proxy...")
+        stop_ok, stop_msg = stop_services()
+        if stop_ok:
+            self._log(stop_msg, "ok")
+        else:
+            self._log(f"Ошибка остановки: {stop_msg}", "err")
+        self.draw()
+
+        # macOS: reset DNS
+        if IS_MACOS:
+            self._step("Сбрасываю системный DNS на DHCP...")
+            dns_ok, dns_msg = macos_reset_dns()
+            if dns_ok:
+                self._log(dns_msg, "ok")
+            else:
+                self._log(f"DNS: {dns_msg}", "warn")
+            self.draw()
+
+        # Status
+        self._refresh_statuses()
+        self.current_server = None
+        self._log("Прокси отключен, система возвращена к настройкам по умолчанию", "ok")
+        self.draw()
+
     def do_rollback(self):
         if not self.is_root:
             self._log("Нет прав root", "err")
@@ -476,7 +548,15 @@ class App:
         ok, msg = rollback_config(backup)
         self._log(msg, "ok" if ok else "err")
         try:
-            self.current_server = get_current_server(read_config(), self.servers)
+            cfg = read_config()
+            self.current_server = get_current_server(cfg, self.servers)
+            if self.current_server:
+                for i, s in enumerate(self.servers):
+                    if s["stamp"] == self.current_server["stamp"]:
+                        self.selected = i + 1
+                        break
+            else:
+                self.selected = 0
         except Exception:
             pass
         self._refresh_statuses()
@@ -510,21 +590,25 @@ class App:
         self.draw()
 
     def do_delete_server(self):
+        if self.selected == 0:
+            self._log("Нельзя удалить 'Без прокси'", "err")
+            self.draw()
+            return
         if not self.servers:
             return
         if not self.is_root:
             self._log("Нет прав root", "err")
             self.draw()
             return
-        srv = self.servers[self.selected]
+        srv = self.servers[self.selected - 1]
         self._log(f"Удалить {srv['name']}? Нажмите D ещё раз для подтверждения", "warn")
         self.draw()
         key = self.scr.getch()
         if key in (ord("d"), ord("D")):
-            self.servers.pop(self.selected)
+            self.servers.pop(self.selected - 1)
             save_servers(self.servers, self.user_id)
-            if self.selected >= len(self.servers) and self.servers:
-                self.selected = len(self.servers) - 1
+            if self.selected >= len(self.servers) + 1:
+                self.selected = len(self.servers)
             self._log(f"Сервер {srv['name']} удалён", "ok")
         else:
             self._log("Удаление отменено", "info")
@@ -565,19 +649,19 @@ class App:
             if key in (ord("q"), ord("Q")):
                 break
             elif key == curses.KEY_UP:
-                if self.servers:
-                    self.selected = (self.selected - 1) % len(self.servers)
+                self.selected = (self.selected - 1) % (len(self.servers) + 1)
                 self.draw()
             elif key == curses.KEY_DOWN:
-                if self.servers:
-                    self.selected = (self.selected + 1) % len(self.servers)
+                self.selected = (self.selected + 1) % (len(self.servers) + 1)
                 self.draw()
-            elif ord("1") <= key <= ord("9") and (key - ord("1")) < len(self.servers):
-                self.selected = key - ord("1")
+            elif ord("0") <= key <= ord("9") and (key - ord("0")) < (len(self.servers) + 1):
+                self.selected = key - ord("0")
                 self.draw()
             elif key in (curses.KEY_ENTER, 10, 13):
-                if self.servers:
-                    self.apply_server(self.servers[self.selected])
+                if self.selected == 0:
+                    self.apply_no_proxy()
+                elif self.servers and (self.selected - 1) < len(self.servers):
+                    self.apply_server(self.servers[self.selected - 1])
             elif key in (ord("r"), ord("R")):
                 self.do_recheck()
             elif key in (ord("b"), ord("B")):

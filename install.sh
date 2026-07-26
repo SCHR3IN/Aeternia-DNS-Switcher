@@ -140,7 +140,7 @@ SCRIPT_EOF
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.1.2</string>
+    <string>2.1.3</string>
     <key>CFBundleSupportedPlatforms</key>
     <array>
         <string>MacOSX</string>

@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.1.3-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -193,8 +193,8 @@ sudo aeternia-dns-switcher
 | Клавиша | Действие |
 |---------|----------|
 | `↑` / `↓` | Навигация по списку серверов |
-| `1`–`8` | Быстрый выбор сервера по номеру |
-| `Enter` | Применить выбранный сервер |
+| `0`–`9` | Быстрый выбор сервера/режима по номеру (`0` — Без прокси) |
+| `Enter` | Применить выбранный сервер / отключить прокси |
 | `P` | Измерить пинг до всех серверов |
 | `A` | Добавить/перенастроить серверы (ввод нового ID) |
 | `D` | Удалить выбранный сервер |

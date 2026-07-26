@@ -221,6 +221,34 @@ def patch_config(text: str, new_stamp: str) -> str:
     return "".join(result)
 
 
+def unpatch_config(text: str) -> str:
+    """Сбрасывает конфигурацию dnscrypt-proxy.toml к значениям по умолчанию."""
+    lines = text.splitlines(keepends=True)
+    result = []
+    in_block = False
+    server_names_done = False
+
+    for line in lines:
+        stripped = line.strip()
+        # 1. Сбрасываем server_names к значению по умолчанию (пустой список)
+        if not server_names_done and re.match(r"^\s*server_names\s*=\s*\[\s*['\"]" + re.escape(SERVER_NAME) + r"['\"]\s*\]", line):
+            result.append("server_names = []\n")
+            server_names_done = True
+            continue
+        # 2. Пропускаем блок [static.'aeternia-doh'] и его содержимое
+        if _BLOCK_RE.match(stripped):
+            in_block = True
+            continue
+        if in_block:
+            if stripped.startswith("["):
+                in_block = False
+            else:
+                continue
+        result.append(line)
+
+    return "".join(result)
+
+
 def write_config_atomic(text: str) -> None:
     tmp = CONFIG_PATH.with_suffix(".toml.tmp")
     tmp.write_text(text)
@@ -302,15 +330,74 @@ def macos_reset_dns() -> tuple[bool, str]:
         return False, str(e)
 
 
+def _macos_get_brew_dnscrypt_plist() -> Optional[Path]:
+    """Находит plist-файл dnscrypt-proxy в путях Homebrew."""
+    paths = [
+        Path("/opt/homebrew/opt/dnscrypt-proxy/homebrew.mxcl.dnscrypt-proxy.plist"),
+        Path("/usr/local/opt/dnscrypt-proxy/homebrew.mxcl.dnscrypt-proxy.plist"),
+    ]
+    for p in paths:
+        if p.exists():
+            return p
+    try:
+        user = os.environ.get("SUDO_USER", os.environ.get("USER", ""))
+        if user:
+            r = run_cmd(["sudo", "-u", user, "brew", "--prefix", "dnscrypt-proxy"], timeout=5)
+        else:
+            r = run_cmd(["brew", "--prefix", "dnscrypt-proxy"], timeout=5)
+        if r.returncode == 0:
+            prefix = Path(r.stdout.strip())
+            plist = prefix / "homebrew.mxcl.dnscrypt-proxy.plist"
+            if plist.exists():
+                return plist
+    except Exception:
+        pass
+    return None
+
+
+def _macos_setup_launchd_service() -> tuple[bool, str]:
+    """Копирует plist-файл в /Library/LaunchDaemons и настраивает права доступа."""
+    plist_src = _macos_get_brew_dnscrypt_plist()
+    if not plist_src:
+        return False, "Не удалось найти plist-файл dnscrypt-proxy"
+    
+    plist_dst = Path("/Library/LaunchDaemons/homebrew.mxcl.dnscrypt-proxy.plist")
+    try:
+        if not plist_dst.exists() or plist_dst.read_bytes() != plist_src.read_bytes():
+            shutil.copy2(plist_src, plist_dst)
+            shutil.chown(plist_dst, user="root", group="wheel")
+            plist_dst.chmod(0o644)
+        return True, str(plist_dst)
+    except Exception as e:
+        return False, f"Ошибка настройки LaunchDaemon: {e}"
+
+
 def restart_services() -> tuple[bool, str]:
     if IS_MACOS:
         try:
-            r = run_cmd(["sudo", "brew", "services", "restart", "dnscrypt-proxy"])
-            if r.returncode != 0:
-                return False, f"Ошибка рестарта: {r.stderr.strip()}"
+            ok, plist_path = _macos_setup_launchd_service()
+            if not ok:
+                return False, plist_path
+            
+            # Проверяем, загружена ли служба в launchctl
+            r = run_cmd(["sudo", "launchctl", "list"], timeout=5)
+            is_loaded = "homebrew.mxcl.dnscrypt-proxy" in r.stdout
+            
+            if is_loaded:
+                # Пытаемся перезапустить через kickstart -k
+                r = run_cmd(["sudo", "launchctl", "kickstart", "-k", "system/homebrew.mxcl.dnscrypt-proxy"])
+                if r.returncode == 0:
+                    return True, "OK"
+                # Если kickstart не сработал, выгружаем
+                run_cmd(["sudo", "launchctl", "bootout", "system", plist_path])
+            
+            # Загружаем заново
+            r = run_cmd(["sudo", "launchctl", "bootstrap", "system", plist_path])
+            if r.returncode != 0 and "already bootstrapped" not in r.stderr.lower():
+                return False, f"launchctl bootstrap failed: {r.stderr.strip()}"
             return True, "OK"
-        except FileNotFoundError:
-            return False, "brew не найден"
+        except Exception as e:
+            return False, str(e)
     else:
         for svc in ["dnscrypt-proxy.socket", "dnscrypt-proxy.service"]:
             try:
@@ -326,10 +413,20 @@ def stop_services() -> tuple[bool, str]:
     """Останавливает dnscrypt-proxy."""
     if IS_MACOS:
         try:
-            run_cmd(["sudo", "brew", "services", "stop", "dnscrypt-proxy"])
+            plist_dst = Path("/Library/LaunchDaemons/homebrew.mxcl.dnscrypt-proxy.plist")
+            # Проверяем, запущен ли в launchd
+            r = run_cmd(["sudo", "launchctl", "list"], timeout=5)
+            if "homebrew.mxcl.dnscrypt-proxy" in r.stdout:
+                if plist_dst.exists():
+                    run_cmd(["sudo", "launchctl", "bootout", "system", str(plist_dst)])
+                else:
+                    run_cmd(["sudo", "launchctl", "bootout", "system/homebrew.mxcl.dnscrypt-proxy"])
+            
+            if plist_dst.exists():
+                plist_dst.unlink()
             return True, "dnscrypt-proxy остановлен"
-        except FileNotFoundError:
-            return False, "brew не найден"
+        except Exception as e:
+            return False, str(e)
     else:
         for svc in ["dnscrypt-proxy.service", "dnscrypt-proxy.socket"]:
             try:
@@ -345,12 +442,21 @@ def enable_services() -> tuple[bool, str]:
     """Включает и запускает dnscrypt-proxy."""
     if IS_MACOS:
         try:
-            r = run_cmd(["sudo", "brew", "services", "start", "dnscrypt-proxy"])
-            if r.returncode != 0:
-                return False, f"Ошибка запуска: {r.stderr.strip()}"
+            ok, plist_path = _macos_setup_launchd_service()
+            if not ok:
+                return False, plist_path
+            
+            r = run_cmd(["sudo", "launchctl", "list"], timeout=5)
+            if "homebrew.mxcl.dnscrypt-proxy" in r.stdout:
+                run_cmd(["sudo", "launchctl", "kickstart", "system/homebrew.mxcl.dnscrypt-proxy"])
+                return True, "OK"
+                
+            r = run_cmd(["sudo", "launchctl", "bootstrap", "system", plist_path])
+            if r.returncode != 0 and "already bootstrapped" not in r.stderr.lower():
+                return False, f"launchctl bootstrap failed: {r.stderr.strip()}"
             return True, "OK"
-        except FileNotFoundError:
-            return False, "brew не найден"
+        except Exception as e:
+            return False, str(e)
     else:
         for svc in ["dnscrypt-proxy.socket", "dnscrypt-proxy.service"]:
             try:
@@ -366,13 +472,13 @@ def enable_services() -> tuple[bool, str]:
 def get_service_statuses() -> dict:
     if IS_MACOS:
         try:
-            # Проверяем через pgrep (brew services может показывать none даже когда запущен через sudo)
+            # Проверяем через pgrep
             r = run_cmd(["pgrep", "-x", "dnscrypt-proxy"], timeout=3)
             if r.returncode == 0:
                 return {"dnscrypt-proxy": "active"}
             # Fallback: проверяем launchctl
             r = run_cmd(["sudo", "launchctl", "list"], timeout=5)
-            if "dnscrypt" in r.stdout.lower():
+            if "homebrew.mxcl.dnscrypt-proxy" in r.stdout:
                 return {"dnscrypt-proxy": "active"}
             return {"dnscrypt-proxy": "none"}
         except Exception:
@@ -441,7 +547,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.1.2"
+VERSION = "2.1.3"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
