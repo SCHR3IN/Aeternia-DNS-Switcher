@@ -106,14 +106,22 @@ def installation_account(username=None):
                        'из обычного Терминала или укажите: sudo bash install.sh --user ИМЯ_ПОЛЬЗОВАТЕЛЯ')
 
 
+def dnscrypt_binary():
+    # Homebrew installs this daemon in sbin (including keg-only/unlinked installs).
+    for prefix in (Path('/opt/homebrew'), Path('/usr/local')):
+        for relative in ('opt/dnscrypt-proxy/sbin/dnscrypt-proxy',
+                         'sbin/dnscrypt-proxy', 'bin/dnscrypt-proxy'):
+            candidate = prefix / relative
+            if candidate.is_file():
+                return candidate
+    raise RuntimeError('DNS-движок не найден. Выполните без sudo: brew install dnscrypt-proxy')
+
+
 def install(account):
     src = Path(__file__).resolve().parent
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', account.pw_name):
         raise RuntimeError('Имя учётной записи не поддерживается правилом sudoers.')
-    binary = next((p for p in (Path('/opt/homebrew/bin/dnscrypt-proxy'),
-                              Path('/usr/local/bin/dnscrypt-proxy')) if p.exists()), None)
-    if not binary:
-        raise RuntimeError('Сначала выполните без sudo: brew install dnscrypt-proxy')
+    binary = dnscrypt_binary()
     # Ensure the actual interpreter and stdlib work before making any changes.
     run(['/usr/bin/python3', '-I', '-S', '-c',
          'import sys,curses; assert sys.version_info >= (3,9), "Нужен Python 3.9+"'])

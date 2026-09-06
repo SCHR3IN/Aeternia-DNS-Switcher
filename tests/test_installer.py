@@ -80,5 +80,28 @@ class InstallerIdentityTests(unittest.TestCase):
             self.assertEqual(installer.installation_account(), self.user)
 
 
+class HomebrewBinaryTests(unittest.TestCase):
+    def test_apple_silicon_sbin_formula_path(self):
+        expected = Path('/opt/homebrew/opt/dnscrypt-proxy/sbin/dnscrypt-proxy')
+        with patch.object(Path, 'is_file', lambda p: p == expected):
+            self.assertEqual(installer.dnscrypt_binary(), expected)
+
+    def test_intel_sbin_formula_path(self):
+        expected = Path('/usr/local/opt/dnscrypt-proxy/sbin/dnscrypt-proxy')
+        with patch.object(Path, 'is_file', lambda p: p == expected):
+            self.assertEqual(installer.dnscrypt_binary(), expected)
+
+    def test_legacy_bin_path(self):
+        expected = Path('/usr/local/bin/dnscrypt-proxy')
+        with patch.object(Path, 'is_file', lambda p: p == expected):
+            self.assertEqual(installer.dnscrypt_binary(), expected)
+
+    def test_missing_binary_has_actionable_error(self):
+        with patch.object(Path, 'is_file', return_value=False):
+            with self.assertRaisesRegex(RuntimeError, 'brew install dnscrypt-proxy'):
+                installer.dnscrypt_binary()
+
+
+
 if __name__ == '__main__':
     unittest.main()
