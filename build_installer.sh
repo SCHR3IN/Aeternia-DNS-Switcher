@@ -54,12 +54,18 @@ echo -e "${CYAN}[1/3] Распаковка файлов...${RESET}"
 
 HEADER_EOF
 
+printf "AETERNIA_INSTALLER_VERSION='%s'\n" "$VER" >> "$OUT"
+
 # Вставляем base64-данные и используем python для платформонезависимого декодирования
 cat >> "$OUT" << PAYLOAD_EOF
 
 # --- Embedded files (base64) ---
 decode_base64() {
-    python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))"
+    if [[ "\$(uname -s)" == "Darwin" ]]; then
+        /usr/bin/python3 -I -S -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))"
+    else
+        python3 -c "import base64, sys; sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))"
+    fi
 }
 
 echo "$B64_PY" | decode_base64 > "\$AETERNIA_TMP/aeternia_dns_switcher.py"

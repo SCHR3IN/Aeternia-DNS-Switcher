@@ -30,6 +30,8 @@ class DeliveryTests(unittest.TestCase):
 
     def test_embedded_installer_matches_all_sources(self):
         installer = (REPO / 'aeternia-dns-installer.sh').read_text(encoding='utf-8')
+        version = (REPO / 'VERSION').read_text().strip()
+        self.assertIn(f"AETERNIA_INSTALLER_VERSION='{version}'", installer)
         files = re.findall(r'echo "([A-Za-z0-9+/=]+)" \| decode_base64 > "\$AETERNIA_TMP/([^"/]+)"', installer)
         self.assertEqual({name for _, name in files}, {
             'aeternia_dns_switcher.py', 'dns_utils.py', 'install.sh', 'logo.png',
@@ -47,6 +49,13 @@ class DeliveryTests(unittest.TestCase):
         for path in REPO.glob('*.sh'):
             with self.subTest(path=path.name):
                 self.assertNotIn(b'\r', path.read_bytes())
+
+    def test_bootstrap_and_embedded_package_require_same_version(self):
+        bootstrap = (REPO / 'install-macos.sh').read_text(encoding='utf-8')
+        version = (REPO / 'VERSION').read_text().strip()
+        self.assertIn(f"AETERNIA_VERSION='{version}'", bootstrap)
+        self.assertIn('AETERNIA_INSTALLER_VERSION=', bootstrap)
+        self.assertIn('--user "$AETERNIA_USER"', bootstrap)
 
 
 class InterfaceTests(unittest.TestCase):

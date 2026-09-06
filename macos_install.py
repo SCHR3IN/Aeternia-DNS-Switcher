@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 import os
 from pathlib import Path
 import plistlib
@@ -69,12 +70,44 @@ def helper(action):
         print('Внимание:', note)
 
 
-def install():
+def installation_account(username=None):
+    """Legacy launchers can invoke sudo twice, replacing SUDO_UID with zero."""
+    def usable(account):
+        return account.pw_uid >= 500 and account.pw_name not in ('root', 'nobody', 'loginwindow')
+
+    if username is not None:
+        try:
+            account = pwd.getpwnam(username)
+        except KeyError:
+            raise RuntimeError(f'Учётная запись {username!r} не найдена.')
+        if not usable(account):
+            raise RuntimeError('Укажите обычного пользователя Mac, а не root/системную учётную запись.')
+        return account
+    try:
+        account = pwd.getpwuid(int(os.environ.get('SUDO_UID', '-1')))
+        if usable(account):
+            return account
+    except (ValueError, KeyError, OverflowError):
+        pass
+    try:
+        account = pwd.getpwnam(os.environ.get('SUDO_USER', ''))
+        if usable(account):
+            return account
+    except KeyError:
+        pass
+    # The kernel-owned console records the logged-in Mac user even after nested sudo.
+    try:
+        account = pwd.getpwuid(os.stat('/dev/console').st_uid)
+        if usable(account):
+            return account
+    except (OSError, KeyError):
+        pass
+    raise RuntimeError('Не удалось определить пользователя Mac. Запустите установку одной командой '
+                       'из обычного Терминала или укажите: sudo bash install.sh --user ИМЯ_ПОЛЬЗОВАТЕЛЯ')
+
+
+def install(account):
     src = Path(__file__).resolve().parent
-    uid = int(os.environ.get('SUDO_UID', '-1'))
-    if uid <= 0:
-        raise RuntimeError('Запустите установку через sudo из учётной записи пользователя.')
-    account = pwd.getpwuid(uid)
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', account.pw_name):
         raise RuntimeError('Имя учётной записи не поддерживается правилом sudoers.')
     binary = next((p for p in (Path('/opt/homebrew/bin/dnscrypt-proxy'),
@@ -173,7 +206,7 @@ def install():
         (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': 'launcher', 'CFBundleName': 'Aeternia DNS',
             'CFBundleIdentifier': 'space.aeternia.dns-switcher',
-            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.2.0',
+            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.2.1',
             'CFBundleIconFile': 'icon.png',
         }))
         shutil.copyfile(src / 'logo.png', bundle / 'Contents/Resources/icon.png')
@@ -204,8 +237,11 @@ def main():
     if sys.version_info < (3, 9):
         raise RuntimeError('Обновите Apple Command Line Tools: нужен системный Python 3.9+.')
     os.umask(0o022)
-    if sys.argv[1:] not in ([], ['--uninstall']):
-        raise RuntimeError('Неизвестные аргументы установщика.')
+    parser = argparse.ArgumentParser(description='Установка Aeternia DNS для macOS')
+    parser.add_argument('--user', help='Пользователь Mac, которому разрешено переключать DNS')
+    parser.add_argument('--uninstall', '-u', action='store_true')
+    args = parser.parse_args()
+    account = None if args.uninstall else installation_account(args.user)
     import fcntl
     secure_dir(DATA, 0o700)
     with (DATA / 'operation.lock').open('a') as lock:
@@ -213,13 +249,12 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError('Другая операция DNS ещё выполняется. Повторите установку/удаление позже.')
-        if sys.argv[1:] == ['--uninstall']:
+        if args.uninstall:
             uninstall()
         else:
-            install()
-    if not sys.argv[1:]:
+            install(account)
+    if not args.uninstall:
         # After releasing the maintenance lock, verify an actual passwordless request.
-        account = pwd.getpwuid(int(os.environ['SUDO_UID']))
         verification = run(['/usr/bin/sudo', '-u', account.pw_name,
                             '/usr/bin/sudo', '-n', str(HELPER)],
                            input='{"action":"status"}\n', capture_output=True, text=True)
