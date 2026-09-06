@@ -1,0 +1,43 @@
+name: macOS installer checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-install:
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Unit tests and shell syntax
+        run: |
+          /usr/bin/python3 -m unittest discover -s tests -v
+          for script in install.sh install-macos.sh build_installer.sh aeternia-dns-installer.sh; do
+            /bin/bash -n "$script"
+          done
+      - name: Install DNS engine
+        run: brew install dnscrypt-proxy
+      - name: Install the embedded macOS package with an explicit user
+        run: sudo /bin/bash ./aeternia-dns-installer.sh --user "$(id -un)"
+      - name: Verify helper and installed Python UI without an interactive password
+        run: |
+          sudo -k
+          printf '%s\n' '{"action":"status"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
+          /usr/bin/python3 -I -S -c 'import sys; sys.path.insert(0, "/Library/PrivilegedHelperTools/space.aeternia.dns"); import curses, aeternia_dns_switcher; assert aeternia_dns_switcher.VERSION == "2.2.1"'
+      - name: Reinstall with the legacy zero SUDO_UID
+        run: sudo env SUDO_UID=0 SUDO_USER="$(id -un)" /bin/bash ./install.sh
+      - name: Exercise no-proxy twice without reboot
+        run: |
+          printf '%s\n' '{"action":"disable"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
+          printf '%s\n' '{"action":"disable"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
+      - name: Uninstall
+        if: always()
+        run: |
+          if [ -f /Library/PrivilegedHelperTools/space.aeternia.dns/macos_install.py ]; then
+            sudo /usr/bin/python3 -I -S /Library/PrivilegedHelperTools/space.aeternia.dns/macos_install.py --uninstall
+          fi
