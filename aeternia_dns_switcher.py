@@ -23,7 +23,7 @@ from dns_utils import (
     measure_ping, measure_all_pings,
     VERSION, check_for_update, run_update,
     IS_MACOS, IS_LINUX,
-    macos_set_dns, macos_reset_dns,
+    macos_request, MACOS_ROOT,
     stop_services, unpatch_config,
 )
 
@@ -54,7 +54,7 @@ def pre_flight_check() -> bool:
     print_banner()
 
     # 1. Проверка root
-    if os.geteuid() != 0:
+    if not IS_MACOS and os.geteuid() != 0:
         print(f"{_YELLOW}⚠  Приложение запущено без прав root.{_RESET}")
         print("   Для работы необходим sudo.")
         print()
@@ -69,6 +69,9 @@ def pre_flight_check() -> bool:
     if is_dnscrypt_installed():
         print(f"  {_GREEN}✓ dnscrypt-proxy установлен{_RESET}")
     else:
+        if IS_MACOS:
+            print('Установите помощник: brew install dnscrypt-proxy, затем sudo bash install.sh')
+            return False
         print(f"\n{_RED}{'═' * 50}{_RESET}")
         print(f"{_RED}{_BOLD}  ⚠  dnscrypt-proxy НЕ установлен!{_RESET}")
         print(f"{_RED}{'═' * 50}{_RESET}")
@@ -98,7 +101,7 @@ def pre_flight_check() -> bool:
         print(f"  {_GREEN}✓ Найдено серверов: {len(servers)} (ID: {user_id}){_RESET}")
     else:
         print(f"  {_YELLOW}Серверы не настроены.{_RESET}")
-        if os.geteuid() != 0:
+        if not IS_MACOS and os.geteuid() != 0:
             print(f"  {_RED}Для настройки нужен root.{_RESET}")
             return False
         if not add_servers_wizard():
@@ -106,7 +109,13 @@ def pre_flight_check() -> bool:
 
     # 4. Проверка конфига dnscrypt-proxy
     print(f"\n{_CYAN}[3/3] Проверка конфига dnscrypt-proxy...{_RESET}")
-    if CONFIG_PATH.exists():
+    if IS_MACOS:
+        result = macos_request('status')
+        if not result.get('ok'):
+            print(result['message'])
+            return False
+        print('  ✓ Помощник доступен без запроса пароля')
+    elif CONFIG_PATH.exists():
         print(f"  {_GREEN}✓ {CONFIG_PATH} найден{_RESET}")
     else:
         print(f"  {_YELLOW}⚠ {CONFIG_PATH} не найден — будет создан при первом переключении{_RESET}")
@@ -192,6 +201,10 @@ class App:
         self.scr.keypad(True)
 
     def _load_initial_state(self):
+        if IS_MACOS:
+            self._refresh_macos_state()
+            self._ping_background()
+            return
         try:
             cfg = read_config()
             self.current_server = get_current_server(cfg, self.servers)
@@ -210,6 +223,35 @@ class App:
 
     def _refresh_statuses(self):
         self.svc_statuses = get_service_statuses()
+
+    def _refresh_macos_state(self):
+        result = macos_request('status')
+        if not result.get('ok'):
+            self._log(result['message'], 'err')
+            self.svc_statuses = {'dnscrypt-proxy': 'unknown'}
+            return
+        active = result.get('active')
+        self.current_server = None
+        self.selected = 0
+        if active:
+            self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'])
+            for i, srv in enumerate(self.servers, 1):
+                if srv['stamp'] == self.current_server['stamp']:
+                    self.selected = i
+                    break
+        self.svc_statuses = {'dnscrypt-proxy': 'active' if result.get('running') else 'none'}
+        if result.get('pending_restore') and not result.get('running'):
+            self._log('Есть сохранённые DNS: выберите «Без прокси» для восстановления.', 'warn')
+
+    def _macos_operation(self, action, **params):
+        self._step('Восстанавливаю DNS...' if action == 'disable' else 'Применяю настройки DNS...')
+        result = macos_request(action, **params)
+        self._log(result['message'], 'ok' if result.get('ok') else 'err')
+        for note in result.get('warnings', []):
+            self._log(note, 'warn')
+        self._refresh_macos_state()
+        self._ping_background()
+        self.draw()
 
     def _ping_background(self):
         """Запускает пинг всех серверов в фоновых потоках параллельно."""
@@ -297,7 +339,7 @@ class App:
         row += 1
         self._put(row, 2, "dnscrypt-proxy: ")
         self._put(row, 18, svc_label, svc_color)
-        if not self.is_root:
+        if not self.is_root and not IS_MACOS:
             self._put(row, w - 16, "[нужен sudo]", self._cp(2))
         row += 1
         self._put(row, 0, "─" * (w - 1), self._cp(4))
@@ -372,6 +414,9 @@ class App:
         self.draw()
 
     def apply_server(self, srv):
+        if IS_MACOS:
+            self._macos_operation('enable', code=srv['code'], user_id=self.user_id)
+            return
         if not self.is_root:
             self._log("Нет прав root — запустите с sudo", "err")
             self.draw()
@@ -440,16 +485,6 @@ class App:
 
         time.sleep(2)
 
-        # macOS: перенаправляем системный DNS на 127.0.0.1
-        if IS_MACOS:
-            self._step("Настраиваю системный DNS → 127.0.0.1...")
-            dns_ok, dns_msg = macos_set_dns("127.0.0.1")
-            if dns_ok:
-                self._log(dns_msg, "ok")
-            else:
-                self._log(f"DNS: {dns_msg}", "warn")
-            self.draw()
-
         # Status
         self._refresh_statuses()
         svc_ok = all(v == "active" for v in self.svc_statuses.values())
@@ -477,6 +512,9 @@ class App:
         self.draw()
 
     def apply_no_proxy(self):
+        if IS_MACOS:
+            self._macos_operation('disable')
+            return
         if not self.is_root:
             self._log("Нет прав root — запустите с sudo", "err")
             self.draw()
@@ -518,16 +556,6 @@ class App:
             self._log(f"Ошибка остановки: {stop_msg}", "err")
         self.draw()
 
-        # macOS: reset DNS
-        if IS_MACOS:
-            self._step("Сбрасываю системный DNS на DHCP...")
-            dns_ok, dns_msg = macos_reset_dns()
-            if dns_ok:
-                self._log(dns_msg, "ok")
-            else:
-                self._log(f"DNS: {dns_msg}", "warn")
-            self.draw()
-
         # Status
         self._refresh_statuses()
         self.current_server = None
@@ -535,6 +563,9 @@ class App:
         self.draw()
 
     def do_rollback(self):
+        if IS_MACOS:
+            self._macos_operation('rollback')
+            return
         if not self.is_root:
             self._log("Нет прав root", "err")
             self.draw()
@@ -563,6 +594,15 @@ class App:
         self.draw()
 
     def do_recheck(self):
+        if IS_MACOS:
+            self._refresh_macos_state()
+            if self.current_server:
+                ok, msg = check_dns()
+                self._log(msg, 'ok' if ok else 'warn')
+            else:
+                self._log('Режим «Без прокси»: локальный DNS не используется.', 'info')
+            self.draw()
+            return
         self._step("Перепроверяю...")
         self._refresh_statuses()
         svc_ok = all(v == "active" for v in self.svc_statuses.values())
@@ -596,7 +636,7 @@ class App:
             return
         if not self.servers:
             return
-        if not self.is_root:
+        if not self.is_root and not IS_MACOS:
             self._log("Нет прав root", "err")
             self.draw()
             return
@@ -615,6 +655,10 @@ class App:
         self.draw()
 
     def do_update(self):
+        if IS_MACOS:
+            self._log('Для обновления запустите новый установщик через sudo bash install.sh.', 'info')
+            self.draw()
+            return
         if not self.is_root:
             self._log("Нет прав root для обновления", "err")
             self.draw()
@@ -680,6 +724,9 @@ class App:
 
 def cli_update():
     """Обновление через командную строку: sudo aeternia-dns-switcher --update"""
+    if IS_MACOS:
+        print('На macOS обновляйте программу новым установщиком: sudo bash install.sh')
+        return
     print_banner()
     print(f"  Текущая версия: {VERSION}")
     print(f"  Проверяю обновления...")
@@ -706,6 +753,12 @@ def cli_update():
 
 def cli_uninstall():
     """Удаление через командную строку: sudo aeternia-dns-switcher --uninstall"""
+    if IS_MACOS:
+        import subprocess
+        command = ['/usr/bin/python3', '-I', '-S', str(MACOS_ROOT / 'macos_install.py'), '--uninstall']
+        if os.geteuid() != 0:
+            command.insert(0, '/usr/bin/sudo')
+        sys.exit(subprocess.call(command))
     print_banner()
     if os.geteuid() != 0:
         print(f"  {_RED}Требуются права root.{_RESET}")

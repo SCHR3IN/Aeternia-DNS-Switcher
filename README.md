@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.3-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.2.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -68,27 +68,33 @@ sudo bash install.sh
 
 ### macOS
 
-#### Быстрая установка (одна команда)
+Версия 2.2.0 использует отдельный системный помощник. Пароль администратора
+нужен при установке/обновлении/удалении. Открытие приложения и переключение DNS
+выполняются без пароля. Право выдается только пользователю, который запустил установку.
 
-Предварительно убедитесь, что у вас установлен [Homebrew](https://brew.sh). Затем выполните команду в терминале:
+Требуются Homebrew и Apple Command Line Tools с `/usr/bin/python3` версии 3.9+.
+Если системный Python недоступен, сначала установите/обновите Command Line Tools
+(`xcode-select --install`).
 
-```bash
-brew install dnscrypt-proxy && sudo brew services start dnscrypt-proxy && pip3 install certifi --break-system-packages && curl -fsSL https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/aeternia-dns-installer.sh -o /tmp/aeternia-install.sh && sudo bash /tmp/aeternia-install.sh
-```
-
-Установщик сам скопирует скрипты, создаст `.app` бандл в `/Applications`, сгенерирует иконку и настроит лаунчер.
-
-#### Установка из репозитория
+Из папки с этой версией исходников:
 
 ```bash
 brew install dnscrypt-proxy
-sudo brew services start dnscrypt-proxy
-pip3 install certifi --break-system-packages
-
-git clone https://github.com/SCHR3IN/Aeternia-DNS-Switcher.git
-cd Aeternia-DNS-Switcher
 sudo bash install.sh
 ```
+
+Либо запустите приложенный к этой версии единый установщик:
+
+```bash
+sudo bash aeternia-dns-installer.sh
+```
+
+Homebrew-службу отдельно запускать не нужно. Установщик копирует DNS-движок
+в защищённую системную папку и создаёт собственную службу `space.aeternia.dns`.
+Обычный запуск: `aeternia-dns-switcher` или «Aeternia DNS» в /Applications.
+
+Подробности восстановления, перехода со старой версии и проверки на Mac:
+[MACOS.md](MACOS.md).
 
 ### Обновление
 
@@ -96,7 +102,9 @@ sudo bash install.sh
 sudo aeternia-dns-switcher --update
 ```
 
-Программа сама проверит наличие новой версии на GitHub, скачает и установит обновление.
+На Linux программа проверит GitHub и установит обновление.
+На macOS повторно запустите установщик новой версии через `sudo bash install.sh`.
+Пароль разрешает обновление самого системного помощника; обычное переключение его не требует.
 
 Также можно обновить через клавишу `U` в интерфейсе программы.
 
@@ -111,8 +119,7 @@ sudo aeternia-dns-switcher --uninstall
 #### macOS
 
 ```bash
-sudo aeternia-dns-switcher --uninstall
-brew services stop dnscrypt-proxy  # опционально
+aeternia-dns-switcher --uninstall
 ```
 
 ---
@@ -126,6 +133,8 @@ sudo aeternia-dns-switcher
 ```
 
 Или найдите **«Aeternia DNS Switcher»** в меню приложений Ubuntu.
+
+На macOS команду обычного запуска выполняйте **без sudo**.
 
 ### Шаг 1: Проверка dnscrypt-proxy
 

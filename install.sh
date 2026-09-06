@@ -18,6 +18,8 @@ LAUNCHER_DST="$INSTALL_BIN/aeternia-dns-switcher"
 IS_MACOS=0
 if [[ "$(uname -s)" == "Darwin" ]]; then
     IS_MACOS=1
+    # macOS gets an unprivileged UI and a separately installed, limited helper.
+    exec /usr/bin/python3 -I -S "$SRC_DIR/macos_install.py" "$@"
 fi
 
 REAL_USER="${SUDO_USER:-$USER}"
