@@ -252,6 +252,17 @@ class BoundaryTests(unittest.TestCase):
                     h.dispatch(request)
             load.assert_not_called()
 
+    def test_accepts_hex_ids_between_8_and_64_chars(self):
+        for user_id in ('1234abcd', '0f1e2d3c4b5a69788796a5b4c3d2e1f0', 'A' * 64):
+            with self.subTest(user_id=user_id), \
+                    patch.object(h, 'load', return_value={'active': None, 'services': {}}), \
+                    patch.object(h, 'enable', return_value=('ok', [])) as enable:
+                h.dispatch({'action': 'enable', 'code': 'de', 'user_id': user_id})
+                enable.assert_called_once()
+        for user_id in ('1234abc', 'A' * 65, '0f1e2d3c4b5a69788796a5b4c3d2e1fg'):
+            with self.subTest(user_id=user_id), self.assertRaises(h.Failure):
+                h.dispatch({'action': 'enable', 'code': 'de', 'user_id': user_id})
+
     def test_network_service_names_not_hardware_names(self):
         out = ('An asterisk (*) denotes that a network service is disabled.\n'
                '(1) My Wi-Fi\n(Hardware Port: Wi-Fi, Device: en0)\n'

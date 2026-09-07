@@ -334,7 +334,7 @@ def dispatch(request):
     if action == 'enable':
         if (not isinstance(request['code'], str) or request['code'] not in COUNTRIES
                 or not isinstance(request['user_id'], str)
-                or not re.fullmatch(r'[0-9a-fA-F]{8}', request['user_id'])):
+                or not re.fullmatch(r'[0-9a-fA-F]{8,64}', request['user_id'])):
             raise Failure('Неверная страна или Aeternia ID.')
     state = load()
     if action == 'status':
