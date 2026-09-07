@@ -1,15 +1,15 @@
-# Aeternia DNS Switcher 2.2.2 — macOS
+# Aeternia DNS Switcher 2.3.0 — macOS
 
 ## Установка одной командой и восстановление запуска
 
 В обычном Терминале Mac выполните **без sudo в начале**:
 
 ```bash
-/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.2.2')"
+/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.3.0')"
 ```
 
 Команда работает независимо от текущей папки и сломанного лаунчера. Она скачивает
-версию 2.2.2, проверяет маркер версии, устанавливает недостающий DNS-движок через Homebrew
+версию 2.3.0, проверяет маркер версии, устанавливает недостающий DNS-движок через Homebrew
 от текущего пользователя и затем запрашивает права администратора для установки Aeternia.
 Если Homebrew ещё нет, запускается его официальный установщик; следуйте его подсказкам.
 При необходимости завершите установку Apple Command Line Tools и повторите команду.
@@ -51,6 +51,29 @@ Python с `-I -S`: пользовательские модули Python не з�
 Правило привязано к учётной записи, запустившей установку; для другого пользователя
 потребуется отдельная настройка. Повторная установка этой сборки заменяет правило
 на пользователя, который её запускает.
+
+## Режим NAVIS (WARP)
+
+У каждой страны два режима. **DNS** — прежний режим: локальный dnscrypt-proxy на `127.0.0.1`,
+меняется только DNS. **NAVIS (WARP)** — весь трафик уходит через туннель Cloudflare WARP
+(WireGuard, при наличии профиля — с обфускацией AmneziaWG), а DNS-запросы внутри туннеля
+идут на выбранный Aeternia-сервер. Это аналог режима NAVIS в ATLAS, но переключается на каждую страну.
+
+- `M` — сменить режим выбранной страны, затем `Enter` — применить. Режим хранится в `servers.json`.
+- `W` — настроить профиль WARP. Если установлен ATLAS, профиль импортируется из
+  `~/Library/Application Support/com.nanitnet.atlas/runtime/warp-profile.json` вместе с параметрами
+  обфускации. Иначе устройство регистрируется напрямую у Cloudflare (`api.cloudflareclient.com`).
+  Профиль хранится под root в `/private/var/db/space.aeternia.dns/warp-profile.json`.
+- Движок: установщик ищет `sing-box-awg` в ATLAS.app и `sing-box` в Homebrew, либо
+  `sudo bash install.sh --engine /путь/к/sing-box`. Копия движка кладётся в
+  `/Library/PrivilegedHelperTools/space.aeternia.dns/sing-box`. Без движка работает только режим DNS.
+- Служба NAVIS: `/Library/LaunchDaemons/space.aeternia.navis.plist`, туннель `198.18.2.1/30`,
+  DNS подключения указывает на `198.18.2.2`; исходные DNS сохраняются и восстанавливаются так же,
+  как в режиме DNS. Журналы: `/private/var/db/space.aeternia.dns/navis*.log`.
+- Домены `.ru` идут напрямую, минуя туннель; порт 853 (DoT) блокируется, DNS перехватывается движком.
+
+ATLAS и NAVIS одновременно работать не могут: если DNS подключения уже перехвачен чужим туннелем
+(адрес из `198.18.0.0/15`), включение отклоняется с пояснением.
 
 ## Логика «Без прокси»
 
@@ -112,7 +135,9 @@ sudo killall -HUP mDNSResponder
 | Ограниченная точка входа | `/Library/PrivilegedHelperTools/space.aeternia.dns-helper` |
 | Код и копия DNS-движка | `/Library/PrivilegedHelperTools/space.aeternia.dns/` |
 | Журнал исходных DNS, конфиг, логи | `/private/var/db/space.aeternia.dns/` |
-| Собственная служба | `/Library/LaunchDaemons/space.aeternia.dns.plist` |
+| Собственная служба (DNS) | `/Library/LaunchDaemons/space.aeternia.dns.plist` |
+| Служба NAVIS (WARP) | `/Library/LaunchDaemons/space.aeternia.navis.plist` |
+| Движок NAVIS и профиль WARP | `/Library/PrivilegedHelperTools/space.aeternia.dns/sing-box`, `/private/var/db/space.aeternia.dns/warp-profile.json` |
 | Правило sudo | `/etc/sudoers.d/aeternia-dns-helper` |
 | Серверы пользователя | `~/Library/Application Support/Aeternia DNS/servers.json` |
 
@@ -178,5 +203,5 @@ bash -n aeternia-dns-installer.sh
 7. Удалить программу с активным DNS и убедиться, что интернет работает.
 
 Изменения подготовлены на базе коммита `86668694d6134d22a85a8508eaed28210c8b55f0`.
-Перед установкой убедитесь, что скачали версию 2.2.2 или новее.
+Перед установкой убедитесь, что скачали версию 2.3.0 или новее.
 Наличие исходников в GitHub не заменяет проверку установщика и сети на настоящем Mac.

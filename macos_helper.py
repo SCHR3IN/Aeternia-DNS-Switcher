@@ -28,6 +28,18 @@ LABEL = 'space.aeternia.dns'
 PLIST = Path('/Library/LaunchDaemons/space.aeternia.dns.plist')
 COUNTRIES = {'de', 'nl', 'fi', 'fr', 'in', 'kz', 'us', 'tr'}
 ENV = {'PATH': '/usr/bin:/bin:/usr/sbin:/sbin', 'LANG': 'C', 'LC_ALL': 'C', 'HOME': '/var/root'}
+# NAVIS: all traffic through Cloudflare WARP (WireGuard/AmneziaWG) with Aeternia DoH inside the tunnel.
+MODES = {'dns', 'navis'}
+NAVIS_LABEL = 'space.aeternia.navis'
+NAVIS_PLIST = Path('/Library/LaunchDaemons/space.aeternia.navis.plist')
+NAVIS_CONFIG = DATA / 'navis.json'
+ENGINE = ROOT / 'sing-box'
+WARP_PROFILE = DATA / 'warp-profile.json'
+NAVIS_TUN = '198.18.2.1/30'
+NAVIS_DNS = '198.18.2.2'          # tun peer address; DNS is hijacked by the engine
+TUNNEL_RANGE = ipaddress.ip_network('198.18.0.0/15')
+WARP_API = 'https://api.cloudflareclient.com/v0a2158/reg'
+WARP_ENDPOINT_IPS = ['162.159.192.1', '162.159.193.1', '162.159.195.1']
 
 
 class Failure(Exception):
@@ -112,7 +124,16 @@ def read_dns(name):
 
 
 def local_dns(values):
-    return any(ipaddress.ip_address(v).is_loopback for v in values)
+    return any(ipaddress.ip_address(v).is_loopback or v == NAVIS_DNS for v in values)
+
+
+def foreign_tunnel_dns(values):
+    """Another tun-based client (e.g. ATLAS) that hijacks DNS; switching under it silently does nothing."""
+    return [v for v in values if v != NAVIS_DNS and ipaddress.ip_address(v) in TUNNEL_RANGE]
+
+
+def listen_address(target):
+    return NAVIS_DNS if target.get('mode', 'dns') == 'navis' else '127.0.0.1'
 
 
 def set_dns(name, values):
@@ -142,13 +163,20 @@ def loaded(label=LABEL):
 
 
 def running():
-    if not loaded():
-        return False
-    r = run(['/bin/launchctl', 'print', f'system/{LABEL}'])
-    return re.search(r'\bpid = \d+', r.stdout) is not None
+    for label in (LABEL, NAVIS_LABEL):
+        if loaded(label):
+            r = run(['/bin/launchctl', 'print', f'system/{label}'])
+            if re.search(r'\bpid = \d+', r.stdout):
+                return True
+    return False
 
 
-def stop(label=LABEL, plist=PLIST):
+def stop(label=None, plist=None):
+    """Without arguments stops both Aeternia services (DNS and NAVIS)."""
+    if label is None:
+        for one_label, one_plist in ((LABEL, PLIST), (NAVIS_LABEL, NAVIS_PLIST)):
+            stop(one_label, one_plist)
+        return
     if loaded(label):
         run(['/bin/launchctl', 'bootout', f'system/{label}'])
     if loaded(label):
@@ -172,6 +200,13 @@ def config_for(target):
 
 
 def start(target):
+    if target.get('mode', 'dns') == 'navis':
+        return start_navis(target)
+    start_dns(target)
+    return []
+
+
+def start_dns(target):
     atomic(CONFIG, config_for(target))
     run([str(BINARY), '-check', '-config', str(CONFIG)], timeout=30)
     stop()
@@ -200,6 +235,302 @@ def start(target):
             return
         time.sleep(0.5)
     raise Failure('Aeternia не отвечает на DNS-запросы; перенаправление отменено.')
+
+# ─── NAVIS (WARP) ─────────────────────────────────────────────────────────────
+
+_P = 2 ** 255 - 19
+
+
+def _clamp(key):
+    key = bytearray(key)
+    key[0] &= 248
+    key[31] &= 127
+    key[31] |= 64
+    return bytes(key)
+
+
+def x25519(scalar, point):
+    """RFC 7748 X25519 in pure Python: the helper runs with -I -S and has no crypto libraries."""
+    k = int.from_bytes(_clamp(scalar), 'little')
+    u = int.from_bytes(point, 'little') & ((1 << 255) - 1)
+    x1, x2, z2, x3, z3, swap = u, 1, 0, u, 1, 0
+    for t in range(254, -1, -1):
+        kt = (k >> t) & 1
+        swap ^= kt
+        if swap:
+            x2, x3, z2, z3 = x3, x2, z3, z2
+        swap = kt
+        a = (x2 + z2) % _P
+        aa = a * a % _P
+        b = (x2 - z2) % _P
+        bb = b * b % _P
+        e = (aa - bb) % _P
+        c = (x3 + z3) % _P
+        d = (x3 - z3) % _P
+        da = d * a % _P
+        cb = c * b % _P
+        x3 = (da + cb) % _P
+        x3 = x3 * x3 % _P
+        z3 = (da - cb) % _P
+        z3 = x1 * (z3 * z3 % _P) % _P
+        x2 = aa * bb % _P
+        z2 = e * ((aa + 121665 * e) % _P) % _P
+    if swap:
+        x2, x3, z2, z3 = x3, x2, z3, z2
+    return (x2 * pow(z2, _P - 2, _P) % _P).to_bytes(32, 'little')
+
+
+def wireguard_keypair():
+    private = _clamp(os.urandom(32))
+    public = x25519(private, (9).to_bytes(32, 'little'))
+    return base64.b64encode(private).decode(), base64.b64encode(public).decode()
+
+
+def _varint(value):
+    if value < 64:
+        return bytes([value])
+    if value < 16384:
+        return (0x4000 | value).to_bytes(2, 'big')
+    return (0x80000000 | value).to_bytes(4, 'big')
+
+
+def fake_quic_initial(size=None):
+    """AmneziaWG 1.5 'I1' packet shaped like a QUIC Initial: DPI sees a browser-like first datagram."""
+    size = size or 1200 + int.from_bytes(os.urandom(1), 'big') % 100
+    dcid, scid = os.urandom(8), os.urandom(8)
+    header = bytes([0xC0 | os.urandom(1)[0] & 0x0F]) + b'\x00\x00\x00\x01'
+    header += bytes([len(dcid)]) + dcid + bytes([len(scid)]) + scid + _varint(0)
+    payload_len = size - len(header) - 2
+    packet = header + _varint(payload_len) + os.urandom(payload_len)
+    return '<b 0x' + packet.hex() + '>'
+
+
+def fake_quic_short(size=None):
+    size = size or 100 + int.from_bytes(os.urandom(1), 'big') % 60
+    packet = bytes([0x40 | os.urandom(1)[0] & 0x3F]) + os.urandom(8) + os.urandom(size - 9)
+    return '<b 0x' + packet.hex() + '>'
+
+
+def default_obfuscation():
+    return {'jc': 4, 'jmin': 40, 'jmax': 70, 's1': 0, 's2': 0, 's3': 0, 's4': 0,
+            'h1': 1, 'h2': 2, 'h3': 3, 'h4': 4, 'i1': fake_quic_initial(), 'i2': fake_quic_short()}
+
+
+def _key(value):
+    try:
+        return isinstance(value, str) and len(base64.b64decode(value, validate=True)) == 32
+    except (ValueError, TypeError):
+        return False
+
+
+def _int_in(value, low, high):
+    return isinstance(value, int) and not isinstance(value, bool) and low <= value <= high
+
+
+def validate_profile(profile):
+    """Closed schema: the UI may hand over an imported profile, but never arbitrary engine options."""
+    if not isinstance(profile, dict):
+        raise Failure('Профиль WARP должен быть JSON-объектом.')
+    allowed = {'private_key', 'address_v4', 'address_v6', 'peer_public_key',
+               'endpoint_host', 'endpoint_port', 'awg', 'source', 'updated'}
+    if set(profile) - allowed or not {'private_key', 'address_v4', 'peer_public_key',
+                                       'endpoint_host', 'endpoint_port'} <= set(profile):
+        raise Failure('Профиль WARP: неверный набор полей.')
+    if not _key(profile['private_key']) or not _key(profile['peer_public_key']):
+        raise Failure('Профиль WARP: неверный формат ключа.')
+    try:
+        ipaddress.IPv4Address(profile['address_v4'])
+        if profile.get('address_v6'):
+            ipaddress.IPv6Address(profile['address_v6'])
+    except ValueError:
+        raise Failure('Профиль WARP: неверный адрес интерфейса.')
+    if (not isinstance(profile['endpoint_host'], str)
+            or not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?', profile['endpoint_host'])
+            or not _int_in(profile['endpoint_port'], 1, 65535)):
+        raise Failure('Профиль WARP: неверная точка подключения.')
+    awg = profile.get('awg')
+    if awg is not None:
+        if not isinstance(awg, dict) or set(awg) - {'jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4',
+                                                   'h1', 'h2', 'h3', 'h4', 'i1', 'i2'}:
+            raise Failure('Профиль WARP: неверные параметры обфускации.')
+        for name, high in (('jc', 128), ('jmin', 1280), ('jmax', 1280), ('s1', 1280), ('s2', 1280),
+                           ('s3', 1280), ('s4', 1280), ('h1', 2 ** 32 - 1), ('h2', 2 ** 32 - 1),
+                           ('h3', 2 ** 32 - 1), ('h4', 2 ** 32 - 1)):
+            if name in awg and not _int_in(awg[name], 0, high):
+                raise Failure(f'Профиль WARP: неверное значение {name}.')
+        for name in ('i1', 'i2'):
+            if name in awg and not (isinstance(awg[name], str)
+                                    and re.fullmatch(r'<b 0x[0-9a-fA-F]{2,6000}>', awg[name])):
+                raise Failure(f'Профиль WARP: неверный пакет {name}.')
+    if 'source' in profile and profile['source'] not in ('register', 'atlas'):
+        raise Failure('Профиль WARP: неизвестный источник.')
+    return profile
+
+
+def save_profile(profile):
+    validate_profile(profile)
+    profile = dict(profile, updated=int(time.time()))
+    atomic(WARP_PROFILE, json.dumps(profile, ensure_ascii=False, indent=1).encode())
+    WARP_PROFILE.chmod(0o600)
+
+
+def load_profile():
+    if not WARP_PROFILE.exists():
+        return None
+    return validate_profile(json.loads(WARP_PROFILE.read_text()))
+
+
+def register_warp():
+    """Register a fresh WARP device directly with Cloudflare; no third-party account server involved."""
+    import ssl
+    import urllib.request
+    private, public = wireguard_keypair()
+    body = {'key': public, 'install_id': '', 'fcm_token': '', 'model': 'PC', 'serial_number': '',
+            'locale': 'en_US', 'tos': time.strftime('%Y-%m-%dT%H:%M:%S.000Z', time.gmtime())}
+    request = urllib.request.Request(WARP_API, data=json.dumps(body).encode(), headers={
+        'Content-Type': 'application/json', 'User-Agent': 'okhttp/3.12.1',
+        'CF-Client-Version': 'a-6.30-2158'})
+    context = ssl.create_default_context()
+    context.load_default_certs()
+    try:
+        with urllib.request.urlopen(request, timeout=25, context=context) as response:
+            answer = json.loads(response.read())
+        interface = answer['config']['interface']['addresses']
+        peer = answer['config']['peers'][0]
+        host, _, port = peer['endpoint']['host'].rpartition(':')
+        profile = {'private_key': private, 'address_v4': interface['v4'], 'address_v6': interface.get('v6'),
+                   'peer_public_key': peer['public_key'], 'endpoint_host': host,
+                   'endpoint_port': int(port), 'awg': default_obfuscation(), 'source': 'register'}
+    except Failure:
+        raise
+    except Exception as error:
+        raise Failure(f'Не удалось зарегистрировать WARP у Cloudflare: {error}. '
+                      'Если API недоступен, импортируйте профиль из ATLAS (клавиша W).')
+    save_profile(profile)
+    return 'Профиль WARP зарегистрирован у Cloudflare.'
+
+
+def resolve_hosts(host):
+    """Pre-resolve through public resolvers before the tunnel exists; empty means 'let the engine bootstrap'."""
+    found = []
+    for server in ('9.9.9.9', '1.1.1.1', '8.8.8.8'):
+        for rtype in ('A', 'AAAA'):
+            r = run(['/usr/bin/dig', f'@{server}', host, rtype, '+short', '+time=2', '+tries=1'],
+                    timeout=6, check=False)
+            for line in r.stdout.split():
+                try:
+                    ipaddress.ip_address(line)
+                    found.append(line)
+                except ValueError:
+                    pass
+        if found:
+            break
+    return sorted(set(found))
+
+
+def navis_config(target, profile, hosts, obfuscated=True):
+    code, uid = target['code'], target['user_id']
+    host = f'{code}.aeternia.space'
+    predefined = {'engage.cloudflareclient.com': WARP_ENDPOINT_IPS}
+    if hosts:
+        predefined[host] = hosts
+    if profile['endpoint_host'] != 'engage.cloudflareclient.com':
+        predefined.pop('engage.cloudflareclient.com')
+    address = [f"{profile['address_v4']}/32"]
+    if profile.get('address_v6'):
+        address.append(f"{profile['address_v6']}/128")
+    endpoint = {
+        'type': 'wireguard', 'tag': 'warp', 'address': address, 'private_key': profile['private_key'],
+        'mtu': 1280, 'domain_resolver': 'bootstrap-hosts',
+        'peers': [{'address': profile['endpoint_host'], 'port': profile['endpoint_port'],
+                   'public_key': profile['peer_public_key'], 'allowed_ips': ['0.0.0.0/0', '::/0'],
+                   'persistent_keepalive_interval': 25}],
+    }
+    if obfuscated and profile.get('awg'):
+        endpoint.update(profile['awg'])
+    return {
+        'log': {'level': 'info', 'timestamp': True, 'output': str(DATA / 'navis.log')},
+        'dns': {
+            'servers': [
+                {'tag': 'aeternia-doh', 'type': 'https', 'server': host, 'server_port': 8443,
+                 'path': f'/dns-query/{uid}', 'detour': 'warp',
+                 'domain_resolver': 'bootstrap-hosts' if hosts else 'bootstrap-quad9'},
+                {'tag': 'bootstrap-hosts', 'type': 'hosts', 'predefined': predefined},
+                {'tag': 'bootstrap-quad9', 'type': 'udp', 'server': '9.9.9.9', 'server_port': 53},
+                {'tag': 'bootstrap-cloudflare', 'type': 'udp', 'server': '1.1.1.1', 'server_port': 53},
+                {'tag': 'bootstrap-local', 'type': 'local'},
+            ],
+            'final': 'aeternia-doh', 'strategy': 'prefer_ipv4', 'timeout': '8s',
+        },
+        'endpoints': [endpoint],
+        'inbounds': [{'type': 'tun', 'tag': 'tun-in', 'address': [NAVIS_TUN], 'mtu': 1280,
+                      'auto_route': True, 'strict_route': True, 'dns_mode': 'hijack', 'stack': 'gvisor',
+                      'route_exclude_address': ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+                                                '169.254.0.0/16', 'fc00::/7', 'fe80::/10']}],
+        'outbounds': [{'type': 'direct', 'tag': 'direct'}],
+        'route': {
+            'auto_detect_interface': True, 'default_domain_resolver': 'bootstrap-local', 'final': 'warp',
+            'rules': [
+                {'action': 'reject', 'network': ['tcp', 'udp'], 'port': 853},
+                {'action': 'hijack-dns', 'network': ['tcp', 'udp'], 'port': 53},
+                {'action': 'hijack-dns', 'protocol': 'dns'},
+                {'action': 'sniff', 'sniffer': ['tls', 'http', 'quic', 'dns'], 'timeout': '2s'},
+                {'action': 'route', 'domain_suffix': ['.ru'], 'outbound': 'direct'},
+            ],
+        },
+        'experimental': {'cache_file': {'enabled': True, 'path': str(DATA / 'navis-cache.db')}},
+    }
+
+
+def _engine_log_tail():
+    try:
+        text = (DATA / 'navis-error.log').read_text(errors='replace').strip().splitlines()
+        return (' Журнал: ' + text[-1][-200:]) if text else ''
+    except OSError:
+        return ''
+
+
+def start_navis(target):
+    if not ENGINE.is_file():
+        raise Failure('Движок NAVIS (sing-box) не установлен. Повторите установку: '
+                      'sudo bash install.sh --engine /путь/к/sing-box')
+    profile = load_profile()
+    if not profile:
+        raise Failure('Профиль WARP не настроен. Нажмите W в приложении.')
+    notes = []
+    hosts = resolve_hosts(f"{target['code']}.aeternia.space")
+    if not hosts:
+        notes.append('Адрес сервера Aeternia не удалось определить заранее; движок разрешит его сам.')
+    atomic(NAVIS_CONFIG, json.dumps(navis_config(target, profile, hosts), indent=1).encode())
+    check = run([str(ENGINE), 'check', '-c', str(NAVIS_CONFIG)], timeout=30, check=False)
+    if check.returncode and profile.get('awg'):
+        # Upstream sing-box without AmneziaWG: fall back to plain WireGuard to the same WARP peer.
+        atomic(NAVIS_CONFIG, json.dumps(navis_config(target, profile, hosts, obfuscated=False), indent=1).encode())
+        check = run([str(ENGINE), 'check', '-c', str(NAVIS_CONFIG)], timeout=30, check=False)
+        notes.append('Движок без поддержки AmneziaWG: используется обычный WireGuard без обфускации.')
+    if check.returncode:
+        raise Failure(f'Конфигурация NAVIS отклонена движком: {(check.stderr or check.stdout)[-300:]}')
+    stop()
+    atomic(NAVIS_PLIST, plistlib.dumps({
+        'Label': NAVIS_LABEL, 'ProgramArguments': [str(ENGINE), 'run', '-c', str(NAVIS_CONFIG)],
+        'RunAtLoad': True, 'KeepAlive': True, 'WorkingDirectory': str(DATA),
+        'StandardOutPath': str(DATA / 'navis-stdout.log'),
+        'StandardErrorPath': str(DATA / 'navis-error.log'),
+        'EnvironmentVariables': ENV,
+    }))
+    NAVIS_PLIST.chmod(0o644)
+    run(['/bin/launchctl', 'bootstrap', 'system', str(NAVIS_PLIST)])
+    # WARP handshake plus DoH inside the tunnel: allow more time than the local DNS mode.
+    for _ in range(30):
+        r = run(['/usr/bin/dig', f'@{NAVIS_DNS}', 'example.com', '+time=2', '+tries=1'],
+                timeout=4, check=False)
+        status = run(['/bin/launchctl', 'print', f'system/{NAVIS_LABEL}'], check=False)
+        if (r.returncode == 0 and 'status: NOERROR' in r.stdout
+                and 'ANSWER SECTION' in r.stdout and re.search(r'\bpid = \d+', status.stdout)):
+            return notes
+        time.sleep(1)
+    raise Failure('NAVIS: туннель WARP не отвечает на DNS-запросы; перенаправление отменено.'
+                  + _engine_log_tail())
 
 
 def locate(name, saved, available):
@@ -265,13 +596,18 @@ def enable(state, target):
     if not tracked:
         if local_dns(current):
             raise Failure('Подключение уже использует локальный DNS. Выполните миграцию установщиком.')
+        foreign = foreign_tunnel_dns(current)
+        if foreign:
+            raise Failure(f'{name}: DNS перехвачен другим туннелем ({", ".join(foreign)}), например ATLAS. '
+                          'Отключите его и повторите; иначе переключение стран не действует.')
         state['services'][name] = {'device': available[name], 'dns': current}
     # Persist original DNS BEFORE touching config, the service, or network settings.
     save(state)
     old = copy.deepcopy(state['active'])
+    notes = []
     try:
-        start(target)
-        set_dns(name, ['127.0.0.1'])
+        notes = start(target) or []
+        set_dns(name, [listen_address(target)])
         flush()
     except Exception as error:
         recovery = ''
@@ -289,7 +625,8 @@ def enable(state, target):
         raise Failure(f'{error} {recovery}')
     state.update(active=target, previous=old)
     save(state)
-    return f"DNS переключён на {target['code']}; перезагрузка не нужна.", []
+    mode = 'NAVIS (WARP)' if target.get('mode', 'dns') == 'navis' else 'DNS'
+    return f"{mode}: переключено на {target['code']}; перезагрузка не нужна.", notes
 
 
 def migrate(state):
@@ -326,22 +663,41 @@ def dispatch(request):
     if not isinstance(request, dict):
         raise Failure('Ожидался JSON-объект.')
     action = request.get('action')
-    if action not in {'status', 'enable', 'disable', 'rollback', 'migrate'}:
+    if action not in {'status', 'enable', 'disable', 'rollback', 'migrate', 'warp'}:
         raise Failure('Недопустимая операция.')
-    allowed = {'action', 'code', 'user_id'} if action == 'enable' else {'action'}
-    if set(request) != allowed:
+    allowed = {'action'}
+    if action == 'enable':
+        allowed = {'action', 'code', 'user_id', 'mode'}
+    elif action == 'warp':
+        allowed = {'action', 'source', 'profile'}
+    if set(request) - allowed or not (allowed - {'mode', 'profile'}) <= set(request):
         raise Failure('Недопустимые параметры операции.')
     if action == 'enable':
         if (not isinstance(request['code'], str) or request['code'] not in COUNTRIES
                 or not isinstance(request['user_id'], str)
-                or not re.fullmatch(r'[0-9a-fA-F]{8,64}', request['user_id'])):
-            raise Failure('Неверная страна или Aeternia ID.')
+                or not re.fullmatch(r'[0-9a-fA-F]{8,64}', request['user_id'])
+                or request.get('mode', 'dns') not in MODES):
+            raise Failure('Неверная страна, режим или Aeternia ID.')
+    if action == 'warp':
+        if request['source'] == 'register':
+            if 'profile' in request:
+                raise Failure('Недопустимые параметры операции.')
+            return {'ok': True, 'message': register_warp(), 'warnings': [], 'active': load()['active']}
+        if request['source'] == 'atlas':
+            if not isinstance(request.get('profile'), dict):
+                raise Failure('Для импорта нужен объект profile.')
+            save_profile(dict(request['profile'], source='atlas'))
+            return {'ok': True, 'message': 'Профиль WARP импортирован из ATLAS (с обфускацией AmneziaWG).',
+                    'warnings': [], 'active': load()['active']}
+        raise Failure('Неизвестный источник профиля WARP.')
     state = load()
     if action == 'status':
         return {'ok': True, 'active': state['active'], 'running': running(),
-                'pending_restore': bool(state['services']), 'message': '', 'warnings': []}
+                'pending_restore': bool(state['services']), 'message': '', 'warnings': [],
+                'navis_available': ENGINE.is_file(), 'warp_ready': WARP_PROFILE.is_file()}
     if action == 'enable':
-        message, notes = enable(state, {'code': request['code'], 'user_id': request['user_id']})
+        message, notes = enable(state, {'code': request['code'], 'user_id': request['user_id'],
+                                        'mode': request.get('mode', 'dns')})
     elif action == 'disable':
         message, notes = disable(state)
     elif action == 'migrate':
@@ -370,7 +726,7 @@ def main():
             import select
             raw = bytearray()
             deadline = time.monotonic() + 5
-            while len(raw) <= 2048 and not raw.endswith(b'\n'):
+            while len(raw) <= 32768 and not raw.endswith(b'\n'):
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 or not select.select([sys.stdin.buffer], [], [], remaining)[0]:
                     raise Failure('Истекло время передачи запроса.')
@@ -378,7 +734,7 @@ def main():
                 if not chunk:
                     break
                 raw.extend(chunk)
-            if len(raw) > 2048:
+            if len(raw) > 32768:
                 raise Failure('Запрос слишком большой.')
             result = dispatch(json.loads(raw))
     except Exception as error:

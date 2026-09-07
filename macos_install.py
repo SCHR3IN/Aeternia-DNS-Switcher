@@ -106,6 +106,41 @@ def installation_account(username=None):
                        'из обычного Терминала или укажите: sudo bash install.sh --user ИМЯ_ПОЛЬЗОВАТЕЛЯ')
 
 
+NAVIS_ENGINES = (
+    # ATLAS bundles sing-box with AmneziaWG; Homebrew sing-box works without obfuscation.
+    Path('/Applications/ATLAS.app/Contents/Resources/resources/sing-box-awg'),
+    Path('/opt/homebrew/opt/sing-box/bin/sing-box'), Path('/opt/homebrew/bin/sing-box'),
+    Path('/usr/local/opt/sing-box/bin/sing-box'), Path('/usr/local/bin/sing-box'),
+)
+
+
+def system_only_dependencies(binary):
+    # The privileged service must not load writable Homebrew libraries at runtime.
+    dependencies = run(['/usr/bin/otool', '-L', str(binary)], capture_output=True, text=True).stdout
+    for line in dependencies.splitlines()[1:]:
+        lib = line.strip().split(' (', 1)[0]
+        if lib and not lib.startswith(('/usr/lib/', '/System/Library/')):
+            raise RuntimeError(f'{binary.name} использует внешнюю библиотеку: {lib}')
+
+
+def navis_engine(explicit=None):
+    """Optional sing-box for NAVIS mode; installation succeeds without it (DNS mode only)."""
+    if explicit:
+        candidate = Path(explicit)
+        if not candidate.is_file():
+            raise RuntimeError(f'Движок NAVIS не найден: {candidate}')
+        system_only_dependencies(candidate)
+        return candidate
+    for candidate in NAVIS_ENGINES:
+        if candidate.is_file():
+            try:
+                system_only_dependencies(candidate)
+            except (RuntimeError, subprocess.CalledProcessError):
+                continue
+            return candidate
+    return None
+
+
 def dnscrypt_binary():
     # Homebrew installs this daemon in sbin (including keg-only/unlinked installs).
     for prefix in (Path('/opt/homebrew'), Path('/usr/local')):
@@ -117,20 +152,16 @@ def dnscrypt_binary():
     raise RuntimeError('DNS-движок не найден. Выполните без sudo: brew install dnscrypt-proxy')
 
 
-def install(account):
+def install(account, engine_path=None):
     src = Path(__file__).resolve().parent
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', account.pw_name):
         raise RuntimeError('Имя учётной записи не поддерживается правилом sudoers.')
     binary = dnscrypt_binary()
+    engine = navis_engine(engine_path)
     # Ensure the actual interpreter and stdlib work before making any changes.
     run(['/usr/bin/python3', '-I', '-S', '-c',
          'import sys,curses; assert sys.version_info >= (3,9), "Нужен Python 3.9+"'])
-    # The privileged service must not load writable Homebrew libraries at runtime.
-    dependencies = run(['/usr/bin/otool', '-L', str(binary)], capture_output=True, text=True).stdout
-    for line in dependencies.splitlines()[1:]:
-        lib = line.strip().split(' (', 1)[0]
-        if lib and not lib.startswith(('/usr/lib/', '/System/Library/')):
-            raise RuntimeError(f'dnscrypt-proxy использует внешнюю библиотеку: {lib}')
+    system_only_dependencies(binary)
     for name in ('macos_helper.py', 'macos_install.py', 'aeternia_dns_switcher.py', 'dns_utils.py'):
         if not (src / name).is_file():
             raise RuntimeError(f'Отсутствует файл установщика: {name}')
@@ -142,6 +173,13 @@ def install(account):
     for name in ('macos_helper.py', 'macos_install.py', 'aeternia_dns_switcher.py', 'dns_utils.py'):
         put(ROOT / name, (src / name).read_bytes())
     put(ROOT / 'dnscrypt-proxy', binary.read_bytes(), 0o755)
+    if engine:
+        put(ROOT / 'sing-box', engine.read_bytes(), 0o755)
+        print(f'Движок NAVIS (WARP) установлен из {engine}')
+    else:
+        (ROOT / 'sing-box').unlink(missing_ok=True)
+        print('Движок NAVIS не найден: доступен только режим DNS. Для NAVIS установите sing-box '
+              '(brew install sing-box) или укажите: sudo bash install.sh --engine /путь/к/sing-box')
     put(HELPER, (f'#!/bin/sh\nexec /usr/bin/python3 -I -S "{ROOT}/macos_helper.py" "$@"\n').encode(), 0o755)
     helper('migrate')
     for name in ('aeternia_dns_switcher.py', 'dns_utils.py'):
@@ -214,7 +252,7 @@ def install(account):
         (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': 'launcher', 'CFBundleName': 'Aeternia DNS',
             'CFBundleIdentifier': 'space.aeternia.dns-switcher',
-            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.2.2',
+            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.3.0',
             'CFBundleIconFile': 'icon.png',
         }))
         shutil.copyfile(src / 'logo.png', bundle / 'Contents/Resources/icon.png')
@@ -247,6 +285,7 @@ def main():
     os.umask(0o022)
     parser = argparse.ArgumentParser(description='Установка Aeternia DNS для macOS')
     parser.add_argument('--user', help='Пользователь Mac, которому разрешено переключать DNS')
+    parser.add_argument('--engine', help='Путь к sing-box для режима NAVIS (WARP); по умолчанию ищется автоматически')
     parser.add_argument('--uninstall', '-u', action='store_true')
     args = parser.parse_args()
     account = None if args.uninstall else installation_account(args.user)
@@ -260,7 +299,7 @@ def main():
         if args.uninstall:
             uninstall()
         else:
-            install(account)
+            install(account, args.engine)
     if not args.uninstall:
         # After releasing the maintenance lock, verify an actual passwordless request.
         verification = run(['/usr/bin/sudo', '-u', account.pw_name,

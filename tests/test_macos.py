@@ -14,6 +14,13 @@ import macos_helper as h
 import dns_utils as d
 
 
+KEY = 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8='  # any 32 bytes, base64
+PROFILE = {'private_key': KEY, 'address_v4': '172.16.0.2', 'address_v6': '2606:4700:110::1',
+           'peer_public_key': KEY, 'endpoint_host': 'engage.cloudflareclient.com', 'endpoint_port': 2408,
+           'awg': {'jc': 4, 'jmin': 40, 'jmax': 70, 's1': 0, 's2': 0, 's3': 0, 's4': 0,
+                   'h1': 1, 'h2': 2, 'h3': 3, 'h4': 4, 'i1': '<b 0xc0000000010800>', 'i2': '<b 0x4001>'}}
+
+
 class Transactions(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -252,6 +259,32 @@ class BoundaryTests(unittest.TestCase):
                     h.dispatch(request)
             load.assert_not_called()
 
+    def test_enable_mode_is_validated_and_forwarded(self):
+        with patch.object(h, 'load', return_value={'active': None, 'services': {}}), \
+                patch.object(h, 'enable', return_value=('ok', [])) as enable:
+            h.dispatch({'action': 'enable', 'code': 'de', 'user_id': '1234abcd', 'mode': 'navis'})
+            self.assertEqual(enable.call_args[0][1]['mode'], 'navis')
+            h.dispatch({'action': 'enable', 'code': 'de', 'user_id': '1234abcd'})
+            self.assertEqual(enable.call_args[0][1]['mode'], 'dns')
+        for bad in ({'mode': 'tun'}, {'mode': 1}, {'mode': 'navis', 'engine': '/bin/sh'}):
+            with self.subTest(bad=bad), self.assertRaises(h.Failure):
+                h.dispatch({'action': 'enable', 'code': 'de', 'user_id': '1234abcd', **bad})
+
+    def test_warp_action_accepts_only_register_or_validated_atlas_profile(self):
+        with patch.object(h, 'register_warp', return_value='registered') as register, \
+                patch.object(h, 'load', return_value={'active': None, 'services': {}}):
+            self.assertEqual(h.dispatch({'action': 'warp', 'source': 'register'})['message'], 'registered')
+            register.assert_called_once()
+        with patch.object(h, 'save_profile') as save, \
+                patch.object(h, 'load', return_value={'active': None, 'services': {}}):
+            h.dispatch({'action': 'warp', 'source': 'atlas', 'profile': PROFILE})
+            self.assertEqual(save.call_args[0][0]['source'], 'atlas')
+        for request in ({'action': 'warp', 'source': 'file', 'profile': PROFILE},
+                        {'action': 'warp', 'source': 'register', 'profile': PROFILE},
+                        {'action': 'warp'}):
+            with self.subTest(request=request), self.assertRaises(h.Failure):
+                h.dispatch(request)
+
     def test_accepts_hex_ids_between_8_and_64_chars(self):
         for user_id in ('1234abcd', 'b8bcea266753a420a5b754e78ca7df56', 'A' * 64):
             with self.subTest(user_id=user_id), \
@@ -318,3 +351,92 @@ class BoundaryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NavisTests(Transactions):
+    """NAVIS reuses the DNS journal: the tunnel address is 'ours' for restore purposes."""
+
+    def test_navis_points_dns_at_tunnel_and_restores(self):
+        h.enable(self.state, {'code': 'de', 'user_id': '1234abcd', 'mode': 'navis'})
+        self.assertEqual(self.dns['Home Wi-Fi'], [h.NAVIS_DNS])
+        self.assertEqual(h.load()['active']['mode'], 'navis')
+        h.enable(self.state, {'code': 'nl', 'user_id': '1234abcd', 'mode': 'dns'})
+        self.assertEqual(self.dns['Home Wi-Fi'], ['127.0.0.1'])
+        self.assertEqual(h.load()['services']['Home Wi-Fi']['dns'], [])
+        h.disable(self.state)
+        self.assertEqual(self.dns['Home Wi-Fi'], [])
+
+    def test_foreign_tunnel_dns_is_rejected_before_any_change(self):
+        self.dns['Home Wi-Fi'] = ['198.18.0.2']
+        with self.assertRaisesRegex(h.Failure, 'другим туннелем'):
+            self.activate()
+        self.assertEqual(self.events, [])
+        self.assertFalse(self.statefile.exists())
+
+    def test_start_notes_are_returned_as_warnings(self):
+        with patch.object(h, 'start', return_value=['note']):
+            message, notes = h.enable(self.state, {'code': 'de', 'user_id': '1234abcd', 'mode': 'navis'})
+        self.assertIn('NAVIS', message)
+        self.assertEqual(notes, ['note'])
+
+
+class WarpProfileTests(unittest.TestCase):
+    def test_x25519_rfc7748_vector_and_public_key(self):
+        k = bytes.fromhex('a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4')
+        u = bytes.fromhex('e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c')
+        self.assertEqual(h.x25519(k, u).hex(),
+                         'c3da55379de9c6908e94ea4df28d084f32eccf03491c71f754b4075577a28552')
+        private, public = h.wireguard_keypair()
+        self.assertTrue(h._key(private) and h._key(public))
+
+    def test_profile_validation(self):
+        self.assertEqual(h.validate_profile(dict(PROFILE)), PROFILE)
+        self.assertIsNotNone(h.validate_profile({k: v for k, v in PROFILE.items() if k != 'awg'}))
+        bad = [dict(PROFILE, private_key='short'), dict(PROFILE, address_v4='localhost'),
+               dict(PROFILE, endpoint_port=70000), dict(PROFILE, endpoint_host='a b'),
+               dict(PROFILE, extra=1), dict(PROFILE, awg={'jc': 4, 'cmd': 'id'}),
+               dict(PROFILE, awg={'i1': 'deadbeef'}), dict(PROFILE, awg={'jc': True}), 'x']
+        for profile in bad:
+            with self.subTest(profile=profile), self.assertRaises(h.Failure):
+                h.validate_profile(profile)
+
+    def test_default_obfuscation_looks_like_quic(self):
+        awg = h.default_obfuscation()
+        h.validate_profile(dict(PROFILE, awg=awg))
+        i1 = bytes.fromhex(awg['i1'][5:-1])
+        self.assertTrue(0xC0 <= i1[0] <= 0xCF)
+        self.assertEqual(i1[1:5], b'\x00\x00\x00\x01')
+        self.assertTrue(1200 <= len(i1) <= 1300)
+        self.assertTrue(0x40 <= bytes.fromhex(awg['i2'][5:-1])[0] <= 0x7F)
+
+    def test_navis_config_targets_country_through_warp(self):
+        cfg = h.navis_config({'code': 'nl', 'user_id': 'b8bcea26'}, PROFILE, ['1.2.3.4'])
+        doh = cfg['dns']['servers'][0]
+        self.assertEqual((doh['server'], doh['path'], doh['detour']),
+                         ('nl.aeternia.space', '/dns-query/b8bcea26', 'warp'))
+        self.assertEqual(cfg['dns']['servers'][1]['predefined']['nl.aeternia.space'], ['1.2.3.4'])
+        endpoint = cfg['endpoints'][0]
+        self.assertEqual(endpoint['i1'], PROFILE['awg']['i1'])
+        self.assertEqual(endpoint['peers'][0]['public_key'], KEY)
+        self.assertEqual(cfg['inbounds'][0]['address'], [h.NAVIS_TUN])
+        self.assertEqual(cfg['route']['final'], 'warp')
+        plain = h.navis_config({'code': 'nl', 'user_id': 'b8bcea26'}, PROFILE, [], obfuscated=False)
+        self.assertNotIn('i1', plain['endpoints'][0])
+        self.assertEqual(plain['dns']['servers'][0]['domain_resolver'], 'bootstrap-quad9')
+
+    def test_atlas_profile_import_mapping(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'warp-profile.json'
+            path.write_text(json.dumps({
+                'privateKey': KEY, 'addressIpv4': '172.16.0.2', 'addressIpv6': '2606:4700:110::1',
+                'peerPublicKey': KEY, 'endpointHost': 'engage.cloudflareclient.com', 'endpointPort': 2408,
+                'obfuscation': {'s1': 0, 's2': 0, 's3': 0, 's4': 0, 'h1': '1', 'h2': '2', 'h3': '3',
+                                'h4': '4', 'jc': 4, 'jmin': 40, 'jmax': 70,
+                                'i1': '<b 0xc0000000010800>', 'i2': '<b 0x4001>'},
+                'source': 'wgcf-server'}))
+            profile = d.read_atlas_warp_profile(path)
+            self.assertEqual(h.validate_profile(profile)['awg']['h1'], 1)
+            self.assertEqual(profile['endpoint_port'], 2408)
+            path.write_text('{"broken": true}')
+            self.assertIsNone(d.read_atlas_warp_profile(path))
+            self.assertIsNone(d.read_atlas_warp_profile(Path(temp) / 'missing.json'))
