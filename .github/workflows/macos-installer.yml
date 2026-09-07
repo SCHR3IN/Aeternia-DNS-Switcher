@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo -k
           printf '%s\n' '{"action":"status"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
-          /usr/bin/python3 -I -S -c 'import sys; sys.path.insert(0, "/Library/PrivilegedHelperTools/space.aeternia.dns"); import curses, aeternia_dns_switcher; assert aeternia_dns_switcher.VERSION == "2.2.2"'
+          /usr/bin/python3 -I -S -c 'import sys; sys.path.insert(0, "/Library/PrivilegedHelperTools/space.aeternia.dns"); import curses, aeternia_dns_switcher; assert aeternia_dns_switcher.VERSION == "2.3.0"'
       - name: Reinstall with the legacy zero SUDO_UID
         run: sudo env SUDO_UID=0 SUDO_USER="$(id -un)" /bin/bash ./install.sh
       - name: Exercise no-proxy twice without reboot

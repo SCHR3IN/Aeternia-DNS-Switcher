@@ -41,6 +41,37 @@ if IS_MACOS:
 SERVER_NAME = "aeternia-doh"
 MACOS_HELPER = Path('/Library/PrivilegedHelperTools/space.aeternia.dns-helper')
 MACOS_ROOT = Path('/Library/PrivilegedHelperTools/space.aeternia.dns')
+# Режимы работы сервера (macOS): обычный DNS через dnscrypt-proxy или NAVIS — весь трафик через WARP.
+MODES = ('dns', 'navis')
+MODE_LABELS = {'dns': 'DNS', 'navis': 'NAVIS'}
+ATLAS_WARP_PROFILE = Path.home() / 'Library/Application Support/com.nanitnet.atlas/runtime/warp-profile.json'
+
+
+def server_mode(server: dict) -> str:
+    mode = server.get('mode', 'dns')
+    return mode if mode in MODES else 'dns'
+
+
+def read_atlas_warp_profile(path: Path = ATLAS_WARP_PROFILE) -> Optional[dict]:
+    """Переводит профиль WARP из ATLAS в формат помощника; None, если файла нет или он непонятен."""
+    try:
+        data = json.loads(path.read_text())
+        obfuscation = data.get('obfuscation') or {}
+        awg = {}
+        for name in ('jc', 'jmin', 'jmax', 's1', 's2', 's3', 's4', 'h1', 'h2', 'h3', 'h4'):
+            if name in obfuscation:
+                awg[name] = int(obfuscation[name])
+        for name in ('i1', 'i2'):
+            if obfuscation.get(name):
+                awg[name] = str(obfuscation[name])
+        return {
+            'private_key': data['privateKey'], 'address_v4': data['addressIpv4'],
+            'address_v6': data.get('addressIpv6'), 'peer_public_key': data['peerPublicKey'],
+            'endpoint_host': data['endpointHost'], 'endpoint_port': int(data['endpointPort']),
+            'awg': awg or None,
+        }
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
 
 
 def macos_request(action: str, **params) -> dict:
@@ -427,7 +458,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.2.2"
+VERSION = "2.3.0"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 

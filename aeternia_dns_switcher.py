@@ -25,6 +25,7 @@ from dns_utils import (
     IS_MACOS, IS_LINUX,
     macos_request, MACOS_ROOT,
     stop_services, unpatch_config,
+    MODES, MODE_LABELS, server_mode, read_atlas_warp_profile, ATLAS_WARP_PROFILE,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -181,6 +182,9 @@ class App:
         self.last_backup = None
         self.svc_statuses = {}
         self.current_server = None
+        self.current_mode = 'dns'
+        self.navis_available = False
+        self.warp_ready = False
         self.servers, self.user_id = load_servers()
         self.pings = {}
         self._ping_thread = None
@@ -232,8 +236,12 @@ class App:
             return
         active = result.get('active')
         self.current_server = None
+        self.current_mode = 'dns'
+        self.navis_available = bool(result.get('navis_available'))
+        self.warp_ready = bool(result.get('warp_ready'))
         self.selected = 0
         if active:
+            self.current_mode = active.get('mode', 'dns')
             self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'])
             for i, srv in enumerate(self.servers, 1):
                 if srv['stamp'] == self.current_server['stamp']:
@@ -333,9 +341,19 @@ class App:
 
         self._put(row, 2, "Текущий DNS:    ")
         self._put(row, 18, cur_name, curses.A_BOLD)
+        if IS_MACOS and self.current_server:
+            mode_label = "NAVIS (WARP)" if self.current_mode == 'navis' else "DNS"
+            self._put(row, 18 + len(cur_name) + 2, f"[{mode_label}]", self._cp(4, True))
         row += 1
-        listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
+        if IS_MACOS and self.current_mode == 'navis':
+            listen_addr = "198.18.2.2 (туннель WARP)"
+        else:
+            listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
         self._put(row, 2, f"Локальный DNS:  {listen_addr}")
+        if IS_MACOS:
+            warp = "готов" if self.warp_ready else "не настроен (W)"
+            navis = "" if self.navis_available else "  движок NAVIS не установлен"
+            self._put(row, 40, f"WARP: {warp}{navis}", self._cp(4))
         row += 1
         self._put(row, 2, "dnscrypt-proxy: ")
         self._put(row, 18, svc_label, svc_color)
@@ -367,6 +385,8 @@ class App:
                     self.current_server and srv["stamp"] == self.current_server["stamp"]
                 )
                 ping_s, ping_attr = self._ping_str(srv.get("code", ""))
+                if IS_MACOS:
+                    ping_s += f"  {MODE_LABELS[server_mode(srv)]:5s}"
                 prefix = " > " if idx == self.selected else "   "
                 label = f"{prefix}[{idx}] {srv_name:12s}"
 
@@ -403,7 +423,7 @@ class App:
                 row += 1
 
         # Keys bar
-        keys = " ↑↓ выбор  Enter примен.  A доб.  D удал.  P пинг  U обновить  R проверить  B откат  Q выход "
+        keys = " ↑↓ выбор  Enter примен.  M режим  W WARP  A доб.  D удал.  P пинг  U обнов.  R пров.  B откат  Q выход "
         self._put(h - 1, 0, keys.ljust(w - 1), self._cp(6))
         self.scr.refresh()
 
@@ -415,7 +435,14 @@ class App:
 
     def apply_server(self, srv):
         if IS_MACOS:
-            self._macos_operation('enable', code=srv['code'], user_id=self.user_id)
+            mode = server_mode(srv)
+            if mode == 'navis' and not self.warp_ready:
+                self.do_warp()
+                if not self.warp_ready:
+                    self._log('NAVIS недоступен без профиля WARP.', 'err')
+                    self.draw()
+                    return
+            self._macos_operation('enable', code=srv['code'], user_id=self.user_id, mode=mode)
             return
         if not self.is_root:
             self._log("Нет прав root — запустите с sudo", "err")
@@ -612,6 +639,42 @@ class App:
         self._log(f"DNS: {dns_msg}", "ok" if dns_ok else "warn")
         self.draw()
 
+    def do_toggle_mode(self):
+        if not IS_MACOS:
+            self._log('Режим NAVIS доступен только на macOS.', 'info')
+            self.draw()
+            return
+        if self.selected == 0 or not self.servers:
+            self._log('Выберите страну, чтобы сменить её режим.', 'warn')
+            self.draw()
+            return
+        srv = self.servers[self.selected - 1]
+        new_mode = 'navis' if server_mode(srv) == 'dns' else 'dns'
+        srv['mode'] = new_mode
+        save_servers(self.servers, self.user_id)
+        hint = ' — весь трафик через WARP' if new_mode == 'navis' else ' — только DNS'
+        self._log(f"{srv['name']}: режим {MODE_LABELS[new_mode]}{hint}. Enter — применить.", 'ok')
+        if new_mode == 'navis' and not self.navis_available:
+            self._log('Движок NAVIS не установлен: sudo bash install.sh --engine /путь/к/sing-box', 'warn')
+        self.draw()
+
+    def do_warp(self):
+        """Профиль WARP: импорт из ATLAS (с обфускацией) либо регистрация напрямую у Cloudflare."""
+        if not IS_MACOS:
+            self._log('WARP доступен только на macOS.', 'info')
+            self.draw()
+            return
+        profile = read_atlas_warp_profile()
+        if profile:
+            self._step('Импортирую профиль WARP из ATLAS...')
+            result = macos_request('warp', source='atlas', profile=profile)
+        else:
+            self._step('Регистрирую устройство WARP у Cloudflare...')
+            result = macos_request('warp', source='register')
+        self._log(result['message'], 'ok' if result.get('ok') else 'err')
+        self._refresh_macos_state()
+        self.draw()
+
     def do_ping(self):
         self._step("Измеряю пинг до серверов...")
         self.pings = {}  # Сбросим старые
@@ -718,6 +781,10 @@ class App:
                 self.do_delete_server()
             elif key in (ord("u"), ord("U")):
                 self.do_update()
+            elif key in (ord("m"), ord("M")):
+                self.do_toggle_mode()
+            elif key in (ord("w"), ord("W")):
+                self.do_warp()
 
 
 # ─── Entry point ─────────────────────────────────────────────────────────────
