@@ -317,6 +317,23 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(own['url'], 'https://203.0.113.10:8443/dns-query/1234abcd')
         self.assertEqual(d.server_host(default), 'fi.aeternia.space')
 
+    def test_own_server_without_id_uses_bare_doh_path(self):
+        own = d.build_server('fi', 'Own', '', '203.0.113.10', 8443)
+        self.assertEqual(own['url'], 'https://203.0.113.10:8443/dns-query')
+        self.assertEqual((d.server_user_id(own), d.server_user_id(own, 'aabbccdd')), ('', ''))
+        self.assertEqual(d.server_user_id(d.build_server('de', 'DE', 'aabbccdd'), 'aabbccdd'), 'aabbccdd')
+        target = {'code': 'fi', 'user_id': '', 'host': '203.0.113.10', 'port': 8443}
+        self.assertIn(own['stamp'], h.config_for(target).decode())
+        self.assertEqual(h.navis_config(target, PROFILE, [])['dns']['servers'][0]['path'], '/dns-query')
+
+    def test_empty_id_allowed_only_with_own_host(self):
+        with patch.object(h, 'load', return_value={'active': None, 'services': {}}), \
+                patch.object(h, 'enable', return_value=('ok', [])) as enable:
+            h.dispatch({'action': 'enable', 'code': 'fi', 'user_id': '', 'host': '203.0.113.10'})
+            self.assertEqual(enable.call_args[0][1]['user_id'], '')
+        with self.assertRaisesRegex(h.Failure, 'нужен ID'):
+            h.dispatch({'action': 'enable', 'code': 'fi', 'user_id': ''})
+
     def test_accepts_hex_ids_between_8_and_64_chars(self):
         for user_id in ('1234abcd', '0f1e2d3c4b5a69788796a5b4c3d2e1f0', 'A' * 64):
             with self.subTest(user_id=user_id), \

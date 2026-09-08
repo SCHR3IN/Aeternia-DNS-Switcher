@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.4.1-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -74,7 +74,7 @@ sudo bash install.sh
 Откройте обычный Терминал и вставьте строку целиком, **без sudo перед `/bin/bash`**:
 
 ```bash
-/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.4.0')"
+/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.4.1')"
 ```
 
 Команда скачает свежий установщик, проверит Homebrew и DNS-движок, установит
@@ -83,7 +83,7 @@ sudo bash install.sh
 Дополнительные подтверждения установки зависимостей могут потребоваться при первом запуске.
 Для восстановления не используйте `--update` старой версии 2.1.0.
 
-Версия 2.4.0 использует отдельный системный помощник. Пароль администратора
+Версия 2.4.1 использует отдельный системный помощник. Пароль администратора
 нужен при установке/обновлении/удалении. Открытие приложения и переключение DNS
 выполняются без пароля. Право выдается только пользователю, который запустил установку.
 
