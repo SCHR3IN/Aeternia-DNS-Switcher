@@ -184,9 +184,20 @@ def stop(label=None, plist=None):
     plist.unlink(missing_ok=True)
 
 
+HOST_RE = re.compile(r'^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$|^(?:\d{1,3}\.){3}\d{1,3}$')
+
+
+def target_host(target):
+    return target.get('host') or f"{target['code']}.aeternia.space"
+
+
+def target_port(target):
+    return int(target.get('port') or 8443)
+
+
 def config_for(target):
-    code, uid = target['code'], target['user_id']
-    host = f'{code}.aeternia.space:8443'.encode()
+    uid = target['user_id']
+    host = f'{target_host(target)}:{target_port(target)}'.encode()
     path = f'/dns-query/{uid}'.encode()
     stamp = 'sdns://' + base64.urlsafe_b64encode(
         b'\x02' + b'\0' * 10 + bytes([len(host)]) + host + bytes([len(path)]) + path
@@ -429,10 +440,10 @@ def resolve_hosts(host):
 
 
 def navis_config(target, profile, hosts, obfuscated=True):
-    code, uid = target['code'], target['user_id']
-    host = f'{code}.aeternia.space'
+    uid = target['user_id']
+    host, port = target_host(target), target_port(target)
     predefined = {'engage.cloudflareclient.com': WARP_ENDPOINT_IPS}
-    if hosts:
+    if hosts and not re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}', host):
         predefined[host] = hosts
     if profile['endpoint_host'] != 'engage.cloudflareclient.com':
         predefined.pop('engage.cloudflareclient.com')
@@ -452,9 +463,9 @@ def navis_config(target, profile, hosts, obfuscated=True):
         'log': {'level': 'info', 'timestamp': True, 'output': str(DATA / 'navis.log')},
         'dns': {
             'servers': [
-                {'tag': 'aeternia-doh', 'type': 'https', 'server': host, 'server_port': 8443,
+                {'tag': 'aeternia-doh', 'type': 'https', 'server': host, 'server_port': port,
                  'path': f'/dns-query/{uid}', 'detour': 'warp',
-                 'domain_resolver': 'bootstrap-hosts' if hosts else 'bootstrap-quad9'},
+                 'domain_resolver': 'bootstrap-hosts' if host in predefined else 'bootstrap-quad9'},
                 {'tag': 'bootstrap-hosts', 'type': 'hosts', 'predefined': predefined},
                 {'tag': 'bootstrap-quad9', 'type': 'udp', 'server': '9.9.9.9', 'server_port': 53},
                 {'tag': 'bootstrap-cloudflare', 'type': 'udp', 'server': '1.1.1.1', 'server_port': 53},
@@ -498,9 +509,10 @@ def start_navis(target):
     if not profile:
         raise Failure('Профиль WARP не настроен. Нажмите W в приложении.')
     notes = []
-    hosts = resolve_hosts(f"{target['code']}.aeternia.space")
+    host = target_host(target)
+    hosts = [host] if re.fullmatch(r'(?:\d{1,3}\.){3}\d{1,3}', host) else resolve_hosts(host)
     if not hosts:
-        notes.append('Адрес сервера Aeternia не удалось определить заранее; движок разрешит его сам.')
+        notes.append('Адрес DNS-сервера не удалось определить заранее; движок разрешит его сам.')
     atomic(NAVIS_CONFIG, json.dumps(navis_config(target, profile, hosts), indent=1).encode())
     check = run([str(ENGINE), 'check', '-c', str(NAVIS_CONFIG)], timeout=30, check=False)
     if check.returncode and profile.get('awg'):
@@ -666,11 +678,12 @@ def dispatch(request):
     if action not in {'status', 'enable', 'disable', 'rollback', 'migrate', 'warp'}:
         raise Failure('Недопустимая операция.')
     allowed = {'action'}
+    optional = {'mode', 'profile', 'host', 'port'}
     if action == 'enable':
-        allowed = {'action', 'code', 'user_id', 'mode'}
+        allowed = {'action', 'code', 'user_id', 'mode', 'host', 'port'}
     elif action == 'warp':
         allowed = {'action', 'source', 'profile'}
-    if set(request) - allowed or not (allowed - {'mode', 'profile'}) <= set(request):
+    if set(request) - allowed or not (allowed - optional) <= set(request):
         raise Failure('Недопустимые параметры операции.')
     if action == 'enable':
         if (not isinstance(request['code'], str) or request['code'] not in COUNTRIES
@@ -678,6 +691,10 @@ def dispatch(request):
                 or not re.fullmatch(r'[0-9a-fA-F]{8,64}', request['user_id'])
                 or request.get('mode', 'dns') not in MODES):
             raise Failure('Неверная страна, режим или Aeternia ID.')
+        if 'host' in request and not (isinstance(request['host'], str) and HOST_RE.fullmatch(request['host'])):
+            raise Failure('Неверный хост DNS-сервера.')
+        if 'port' in request and not _int_in(request['port'], 1, 65535):
+            raise Failure('Неверный порт DNS-сервера.')
     if action == 'warp':
         if request['source'] == 'register':
             if 'profile' in request:
@@ -696,8 +713,12 @@ def dispatch(request):
                 'pending_restore': bool(state['services']), 'message': '', 'warnings': [],
                 'navis_available': ENGINE.is_file(), 'warp_ready': WARP_PROFILE.is_file()}
     if action == 'enable':
-        message, notes = enable(state, {'code': request['code'], 'user_id': request['user_id'],
-                                        'mode': request.get('mode', 'dns')})
+        target = {'code': request['code'], 'user_id': request['user_id'], 'mode': request.get('mode', 'dns')}
+        if 'host' in request:
+            target['host'] = request['host']
+        if 'port' in request:
+            target['port'] = request['port']
+        message, notes = enable(state, target)
     elif action == 'disable':
         message, notes = disable(state)
     elif action == 'migrate':
