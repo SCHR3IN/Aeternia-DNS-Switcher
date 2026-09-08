@@ -81,6 +81,24 @@ class InterfaceTests(unittest.TestCase):
         self.assertEqual(app._macos_operation.call_args_list[1].args, ('disable',))
         self.assertEqual(app._macos_operation.call_args_list[2].args, ('rollback',))
 
+    def test_active_own_server_keeps_its_name_and_id(self):
+        own = self.ui.build_server('fi', 'Мой сервер', '', '203.0.113.10', 8443)
+        app = self.ui.App.__new__(self.ui.App)
+        app._log = Mock()
+        app.servers = [own, self.ui.build_server('de', 'Германия', 'aabbccdd')]
+        app.user_id = 'aabbccdd'
+        app._macos_operation = Mock()
+        with patch.object(self.ui, 'macos_request', return_value={
+                'ok': True, 'running': True, 'active': {
+                    'code': 'fi', 'user_id': '', 'host': '203.0.113.10', 'port': 8443, 'mode': 'dns'}}):
+            app._refresh_macos_state()
+        self.assertEqual(app.current_server['name'], 'Мой сервер')
+        self.assertEqual(app.selected, 1)
+        with patch.object(self.ui, 'IS_MACOS', True):
+            app.apply_server(own)
+        self.assertEqual(app._macos_operation.call_args.kwargs['user_id'], '')
+        self.assertEqual(app._macos_operation.call_args.kwargs['host'], '203.0.113.10')
+
     def test_launch_does_not_request_root_or_confirmation(self):
         with patch.object(self.ui, 'IS_MACOS', True), \
                 patch.object(self.ui.os, 'geteuid', return_value=501, create=True), \
