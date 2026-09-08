@@ -26,7 +26,7 @@ from dns_utils import (
     macos_request, MACOS_ROOT,
     stop_services, unpatch_config,
     MODES, MODE_LABELS, server_mode, read_atlas_warp_profile, ATLAS_WARP_PROFILE,
-    server_host, server_port, DEFAULT_DOMAIN, DEFAULT_PORT, HOST_RE,
+    server_host, server_port, server_user_id, DEFAULT_DOMAIN, DEFAULT_PORT, HOST_RE,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -155,10 +155,11 @@ def add_own_server_wizard(existing: list, user_id: str) -> bool:
         print(f"{_RED}Неизвестный код страны.{_RESET}")
         return False
     name = input(f"  Название [{COUNTRIES[code]} (свой)]: ").strip() or f"{COUNTRIES[code]} (свой)"
-    new_id = _ask_user_id(f"  ID клиента на этом сервере [{user_id or 'ввести'}]: " if user_id else "  ID клиента: ")
-    if new_id is None and user_id:
-        new_id = user_id
-    if not new_id:
+    print(f"  {_YELLOW}Если сервер не требует ID, оставьте поле пустым.{_RESET}")
+    new_id = input("  ID клиента (можно пусто): ").strip()
+    if new_id and (not 8 <= len(new_id) <= 64
+                   or not all(c in "0123456789abcdefABCDEF" for c in new_id)):
+        print(f"{_RED}ID должен быть hex-кодом длиной 8–64 символа либо пустым.{_RESET}")
         return False
     server = build_server(code, name[:20], new_id, host, int(port))
     print(f"\n  {_GREEN}Сервер:{_RESET} {server['url']}")
@@ -166,7 +167,7 @@ def add_own_server_wizard(existing: list, user_id: str) -> bool:
         print("Отменено.")
         return False
     servers = [s for s in existing if s.get("url") != server["url"]] + [server]
-    save_servers(servers, new_id if not user_id else user_id)
+    save_servers(servers, user_id or new_id)
     print(f"  {_GREEN}✓ Сервер сохранён{_RESET}")
     return True
 
@@ -295,6 +296,7 @@ class App:
             self.current_mode = active.get('mode', 'dns')
             self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'],
                                                active.get('host'), active.get('port'))
+            self.current_server.setdefault('user_id', active['user_id'])
             for i, srv in enumerate(self.servers, 1):
                 if srv['stamp'] == self.current_server['stamp']:
                     self.selected = i
@@ -374,7 +376,8 @@ class App:
         row = 0
 
         # Title
-        title = f"  Aeternia DNS Switcher v{VERSION}  [ID: {self.user_id}]  "
+        title = (f"  Aeternia DNS Switcher v{VERSION}  [ID: {self.user_id}]  "
+                 if self.user_id else f"  Aeternia DNS Switcher v{VERSION}  ")
         self._put(row, 0, "─" * (w - 1), self._cp(4))
         row += 1
         self._put(row, max(0, (w - len(title)) // 2), title, self._cp(4, bold=True))
@@ -493,7 +496,7 @@ class App:
                     self._log('NAVIS недоступен без профиля WARP.', 'err')
                     self.draw()
                     return
-            params = {'code': srv['code'], 'user_id': self.user_id, 'mode': mode}
+            params = {'code': srv['code'], 'user_id': server_user_id(srv, self.user_id), 'mode': mode}
             if srv.get('host'):
                 params.update(host=server_host(srv), port=server_port(srv))
             self._macos_operation('enable', **params)

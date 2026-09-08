@@ -195,10 +195,14 @@ def target_port(target):
     return int(target.get('port') or 8443)
 
 
+def doh_path(uid):
+    """Пустой ID — сервер без авторизации по пути (свой SmartDNS-Server)."""
+    return f'/dns-query/{uid}' if uid else '/dns-query'
+
+
 def config_for(target):
-    uid = target['user_id']
     host = f'{target_host(target)}:{target_port(target)}'.encode()
-    path = f'/dns-query/{uid}'.encode()
+    path = doh_path(target['user_id']).encode()
     stamp = 'sdns://' + base64.urlsafe_b64encode(
         b'\x02' + b'\0' * 10 + bytes([len(host)]) + host + bytes([len(path)]) + path
     ).rstrip(b'=').decode()
@@ -464,7 +468,7 @@ def navis_config(target, profile, hosts, obfuscated=True):
         'dns': {
             'servers': [
                 {'tag': 'aeternia-doh', 'type': 'https', 'server': host, 'server_port': port,
-                 'path': f'/dns-query/{uid}', 'detour': 'warp',
+                 'path': doh_path(uid), 'detour': 'warp',
                  'domain_resolver': 'bootstrap-hosts' if host in predefined else 'bootstrap-quad9'},
                 {'tag': 'bootstrap-hosts', 'type': 'hosts', 'predefined': predefined},
                 {'tag': 'bootstrap-quad9', 'type': 'udp', 'server': '9.9.9.9', 'server_port': 53},
@@ -688,9 +692,12 @@ def dispatch(request):
     if action == 'enable':
         if (not isinstance(request['code'], str) or request['code'] not in COUNTRIES
                 or not isinstance(request['user_id'], str)
-                or not re.fullmatch(r'[0-9a-fA-F]{8,64}', request['user_id'])
+                or not re.fullmatch(r'[0-9a-fA-F]{8,64}|', request['user_id'])
                 or request.get('mode', 'dns') not in MODES):
             raise Failure('Неверная страна, режим или Aeternia ID.')
+        # Сервер без ID имеет смысл только для своего DNS: у Aeternia путь всегда с ID.
+        if not request['user_id'] and 'host' not in request:
+            raise Failure('Для серверов Aeternia нужен ID.')
         if 'host' in request and not (isinstance(request['host'], str) and HOST_RE.fullmatch(request['host'])):
             raise Failure('Неверный хост DNS-сервера.')
         if 'port' in request and not _int_in(request['port'], 1, 65535):

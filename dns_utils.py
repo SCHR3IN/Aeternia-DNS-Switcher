@@ -117,6 +117,15 @@ def server_host(server: dict) -> str:
     return server.get("host") or f"{server['code']}.{DEFAULT_DOMAIN}"
 
 
+def server_user_id(server: dict, default: str = "") -> str:
+    """ID клиента этого сервера: свой (если задан) либо общий Aeternia ID. Пустая строка — без ID."""
+    return server.get("user_id", default) or ""
+
+
+def doh_path(user_id: str) -> str:
+    return f"{DEFAULT_PATH_PREFIX}{user_id}" if user_id else DEFAULT_PATH_PREFIX.rstrip("/")
+
+
 def server_port(server: dict) -> int:
     try:
         return int(server.get("port") or DEFAULT_PORT)
@@ -146,12 +155,12 @@ def build_server(code: str, name: str, user_id: str, host: Optional[str] = None,
     host = host or f"{code}.{DEFAULT_DOMAIN}"
     port = int(port or DEFAULT_PORT)
     hostname_port = f"{host}:{port}"
-    path = f"{DEFAULT_PATH_PREFIX}{user_id}"
+    path = doh_path(user_id)
     url = f"https://{hostname_port}{path}"
     stamp = generate_doh_stamp(hostname_port, path)
     server = {"name": name, "code": code, "url": url, "stamp": stamp}
     if host != f"{code}.{DEFAULT_DOMAIN}" or port != int(DEFAULT_PORT):
-        server.update(host=host, port=port)
+        server.update(host=host, port=port, user_id=user_id)
     return server
 
 
@@ -479,7 +488,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.4.0"
+VERSION = "2.4.1"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
