@@ -296,9 +296,10 @@ class App:
             self.current_mode = active.get('mode', 'dns')
             self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'],
                                                active.get('host'), active.get('port'))
-            self.current_server.setdefault('user_id', active['user_id'])
             for i, srv in enumerate(self.servers, 1):
                 if srv['stamp'] == self.current_server['stamp']:
+                    # Показываем имя из списка, иначе свой сервер выглядит как страна Aeternia.
+                    self.current_server = dict(srv)
                     self.selected = i
                     break
         self.svc_statuses = {'dnscrypt-proxy': 'active' if result.get('running') else 'none'}
