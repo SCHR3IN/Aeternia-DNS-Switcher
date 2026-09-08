@@ -151,7 +151,7 @@ def generate_doh_stamp(hostname_port: str, path: str) -> str:
 
 def build_server(code: str, name: str, user_id: str, host: Optional[str] = None,
                  port: Optional[int] = None) -> dict:
-    """host/port заданы для своего сервера (SmartDNS-Server); иначе Aeternia."""
+    """host/port заданы для своего Smart DNS сервера; иначе Aeternia."""
     host = host or f"{code}.{DEFAULT_DOMAIN}"
     port = int(port or DEFAULT_PORT)
     hostname_port = f"{host}:{port}"
@@ -488,7 +488,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.4.2"
+VERSION = "2.4.3"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 

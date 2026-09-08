@@ -139,7 +139,7 @@ def _ask_user_id(prompt: str) -> Optional[str]:
 
 
 def add_own_server_wizard(existing: list, user_id: str) -> bool:
-    """Свой DNS-сервер (SmartDNS-Server): хост или IP, порт, страна."""
+    """Свой Smart DNS сервер: хост или IP, порт, страна."""
     print(f"\n{_BOLD}  Свой сервер{_RESET}")
     host = input(f"  Хост или IP сервера: ").strip()
     if not HOST_RE.match(host):
@@ -179,7 +179,7 @@ def add_servers_wizard() -> bool:
     print(f"{_CYAN}{'═' * 50}{_RESET}")
     print()
     print(f"  {_BOLD}[1]{_RESET} Aeternia — все страны по вашему Aeternia ID")
-    print(f"  {_BOLD}[2]{_RESET} Свой сервер (SmartDNS-Server) — хост/IP, порт, ID клиента")
+    print(f"  {_BOLD}[2]{_RESET} Свой сервер — хост/IP, порт, ID клиента")
     print()
     choice = input("  Выберите [1]: ").strip() or "1"
     existing, current_id = load_servers()

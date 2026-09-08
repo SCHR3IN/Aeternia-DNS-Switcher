@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.2-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.4.3-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -29,7 +29,7 @@
 - 🔄 **Безопасное переключение** с автобэкапом и откатом конфига
 - ➕ **Добавление/удаление** серверов прямо из интерфейса
 - 🖥️ **TUI-интерфейс** (Terminal User Interface) с навигацией клавиатурой
-- 🏠 **Свой сервер** — в мастере настройки можно указать хост/IP и порт собственного Smart DNS ([SmartDNS-Server](https://github.com/SCHR3IN/SmartDNS-Server)); список стран Aeternia при этом сохраняется
+- 🏠 **Свой сервер** — в мастере настройки можно указать хост/IP и порт собственного Smart DNS; список стран Aeternia при этом сохраняется
 - 🛡️ **Режим NAVIS (WARP) на macOS** — для любой страны: весь трафик через туннель Cloudflare WARP (AmneziaWG), DNS внутри туннеля на выбранный сервер Aeternia. Подробности в [MACOS.md](MACOS.md)
 
 ---
@@ -74,7 +74,7 @@ sudo bash install.sh
 Откройте обычный Терминал и вставьте строку целиком, **без sudo перед `/bin/bash`**:
 
 ```bash
-/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.4.2')"
+/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.4.3')"
 ```
 
 Команда скачает свежий установщик, проверит Homebrew и DNS-движок, установит
@@ -83,7 +83,7 @@ sudo bash install.sh
 Дополнительные подтверждения установки зависимостей могут потребоваться при первом запуске.
 Для восстановления не используйте `--update` старой версии 2.1.0.
 
-Версия 2.4.2 использует отдельный системный помощник. Пароль администратора
+Версия 2.4.3 использует отдельный системный помощник. Пароль администратора
 нужен при установке/обновлении/удалении. Открытие приложения и переключение DNS
 выполняются без пароля. Право выдается только пользователю, который запустил установку.
 

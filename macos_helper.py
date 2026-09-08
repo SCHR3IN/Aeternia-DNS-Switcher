@@ -196,7 +196,7 @@ def target_port(target):
 
 
 def doh_path(uid):
-    """Пустой ID — сервер без авторизации по пути (свой SmartDNS-Server)."""
+    """Пустой ID — сервер без авторизации по пути (свой Smart DNS сервер)."""
     return f'/dns-query/{uid}' if uid else '/dns-query'
 
 
