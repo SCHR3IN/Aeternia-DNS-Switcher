@@ -12,7 +12,7 @@ if [[ "$(/usr/bin/id -u)" == 0 ]]; then
 fi
 
 AETERNIA_USER=$(/usr/bin/id -un)
-AETERNIA_VERSION='2.4.2'
+AETERNIA_VERSION='2.4.3'
 AETERNIA_STAGE=$(/usr/bin/mktemp -d /tmp/aeternia-bootstrap.XXXXXX)
 trap '/bin/rm -rf -- "$AETERNIA_STAGE"' EXIT
 
