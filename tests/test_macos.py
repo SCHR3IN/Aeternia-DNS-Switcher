@@ -285,6 +285,38 @@ class BoundaryTests(unittest.TestCase):
             with self.subTest(request=request), self.assertRaises(h.Failure):
                 h.dispatch(request)
 
+    def test_enable_accepts_own_server_host_and_port(self):
+        with patch.object(h, 'load', return_value={'active': None, 'services': {}}), \
+                patch.object(h, 'enable', return_value=('ok', [])) as enable:
+            h.dispatch({'action': 'enable', 'code': 'fi', 'user_id': '1234abcd', 'host': '203.0.113.10', 'port': 8443})
+            self.assertEqual((enable.call_args[0][1]['host'], enable.call_args[0][1]['port']), ('203.0.113.10', 8443))
+            h.dispatch({'action': 'enable', 'code': 'fi', 'user_id': '1234abcd', 'host': 'fi.example.com'})
+            self.assertNotIn('port', enable.call_args[0][1])
+        for bad in ({'host': 'x y'}, {'host': 'localhost'}, {'host': ''}, {'port': 0}, {'port': '8443'}, {'port': 70000}):
+            with self.subTest(bad=bad), self.assertRaises(h.Failure):
+                h.dispatch({'action': 'enable', 'code': 'fi', 'user_id': '1234abcd', **bad})
+
+    def test_config_and_navis_use_target_host(self):
+        own = {'code': 'fi', 'user_id': '0f1e2d3c', 'host': '203.0.113.10', 'port': 8443}
+        self.assertIn(d.build_server('fi', 'Finland', '0f1e2d3c', '203.0.113.10', 8443)['stamp'],
+                      h.config_for(own).decode())
+        self.assertIn(d.build_server('de', 'Germany', '0f1e2d3c')['stamp'],
+                      h.config_for({'code': 'de', 'user_id': '0f1e2d3c'}).decode())
+        cfg = h.navis_config(own, PROFILE, ['203.0.113.10'])
+        doh = cfg['dns']['servers'][0]
+        self.assertEqual((doh['server'], doh['server_port'], doh['domain_resolver']),
+                         ('203.0.113.10', 8443, 'bootstrap-quad9'))
+        self.assertNotIn('203.0.113.10', cfg['dns']['servers'][1]['predefined'])
+
+    def test_build_server_marks_only_custom_hosts(self):
+        default = d.build_server('fi', 'Finland', '1234abcd')
+        self.assertNotIn('host', default)
+        own = d.build_server('fi', 'Own', '1234abcd', '203.0.113.10', 8443)
+        self.assertEqual((own['host'], own['port'], d.server_host(own), d.server_port(own)),
+                         ('203.0.113.10', 8443, '203.0.113.10', 8443))
+        self.assertEqual(own['url'], 'https://203.0.113.10:8443/dns-query/1234abcd')
+        self.assertEqual(d.server_host(default), 'fi.aeternia.space')
+
     def test_accepts_hex_ids_between_8_and_64_chars(self):
         for user_id in ('1234abcd', '0f1e2d3c4b5a69788796a5b4c3d2e1f0', 'A' * 64):
             with self.subTest(user_id=user_id), \

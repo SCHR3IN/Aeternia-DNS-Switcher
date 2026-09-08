@@ -252,7 +252,7 @@ def install(account, engine_path=None):
         (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': 'launcher', 'CFBundleName': 'Aeternia DNS',
             'CFBundleIdentifier': 'space.aeternia.dns-switcher',
-            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.3.0',
+            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.4.0',
             'CFBundleIconFile': 'icon.png',
         }))
         shutil.copyfile(src / 'logo.png', bundle / 'Contents/Resources/icon.png')

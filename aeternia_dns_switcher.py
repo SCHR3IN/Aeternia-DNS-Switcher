@@ -26,6 +26,7 @@ from dns_utils import (
     macos_request, MACOS_ROOT,
     stop_services, unpatch_config,
     MODES, MODE_LABELS, server_mode, read_atlas_warp_profile, ATLAS_WARP_PROFILE,
+    server_host, server_port, DEFAULT_DOMAIN, DEFAULT_PORT, HOST_RE,
 )
 
 # ─── Предварительный экран (до curses) ───────────────────────────────────────
@@ -126,11 +127,66 @@ def pre_flight_check() -> bool:
     return True
 
 
+def _ask_user_id(prompt: str) -> Optional[str]:
+    user_id = input(prompt).strip()
+    if not user_id:
+        print(f"{_RED}ID не может быть пустым.{_RESET}")
+        return None
+    if not 8 <= len(user_id) <= 64 or not all(c in "0123456789abcdefABCDEF" for c in user_id):
+        print(f"{_RED}ID должен быть шестнадцатеричным числом длиной от 8 до 64 символов (например, 063eb77c).{_RESET}")
+        return None
+    return user_id
+
+
+def add_own_server_wizard(existing: list, user_id: str) -> bool:
+    """Свой DNS-сервер (SmartDNS-Server): хост или IP, порт, страна."""
+    print(f"\n{_BOLD}  Свой сервер{_RESET}")
+    host = input(f"  Хост или IP сервера: ").strip()
+    if not HOST_RE.match(host):
+        print(f"{_RED}Нужно доменное имя или IPv4-адрес.{_RESET}")
+        return False
+    port = input(f"  Порт [{DEFAULT_PORT}]: ").strip() or DEFAULT_PORT
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        print(f"{_RED}Порт должен быть числом от 1 до 65535.{_RESET}")
+        return False
+    print("  Код страны (для списка): " + ", ".join(COUNTRIES))
+    code = input("  Код страны [fi]: ").strip().lower() or "fi"
+    if code not in COUNTRIES:
+        print(f"{_RED}Неизвестный код страны.{_RESET}")
+        return False
+    name = input(f"  Название [{COUNTRIES[code]} (свой)]: ").strip() or f"{COUNTRIES[code]} (свой)"
+    new_id = _ask_user_id(f"  ID клиента на этом сервере [{user_id or 'ввести'}]: " if user_id else "  ID клиента: ")
+    if new_id is None and user_id:
+        new_id = user_id
+    if not new_id:
+        return False
+    server = build_server(code, name[:20], new_id, host, int(port))
+    print(f"\n  {_GREEN}Сервер:{_RESET} {server['url']}")
+    if input("  Сохранить? [Y/n]: ").strip().lower() == "n":
+        print("Отменено.")
+        return False
+    servers = [s for s in existing if s.get("url") != server["url"]] + [server]
+    save_servers(servers, new_id if not user_id else user_id)
+    print(f"  {_GREEN}✓ Сервер сохранён{_RESET}")
+    return True
+
+
 def add_servers_wizard() -> bool:
-    """Wizard ввода Aeternia ID. Возвращает True при успехе."""
+    """Wizard: серверы Aeternia по ID или свой сервер. Возвращает True при успехе."""
     print(f"\n{_CYAN}{'═' * 50}{_RESET}")
-    print(f"{_BOLD}  Настройка серверов Aeternia{_RESET}")
+    print(f"{_BOLD}  Настройка серверов{_RESET}")
     print(f"{_CYAN}{'═' * 50}{_RESET}")
+    print()
+    print(f"  {_BOLD}[1]{_RESET} Aeternia — все страны по вашему Aeternia ID")
+    print(f"  {_BOLD}[2]{_RESET} Свой сервер (SmartDNS-Server) — хост/IP, порт, ID клиента")
+    print()
+    choice = input("  Выберите [1]: ").strip() or "1"
+    existing, current_id = load_servers()
+    if choice == "2":
+        return add_own_server_wizard(existing, current_id)
+    if choice != "1":
+        print("Отменено.")
+        return False
     print()
     print("  Доступные страны:")
     for code, name in COUNTRIES.items():
@@ -139,16 +195,11 @@ def add_servers_wizard() -> bool:
     print("  Введите ваш Aeternia ID.")
     print(f"  {_YELLOW}(это hex-код из URL: /dns-query/XXXXXXXX, 8–64 символа){_RESET}")
     print()
-
-    user_id = input("  Aeternia ID: ").strip()
+    user_id = _ask_user_id("  Aeternia ID: ")
     if not user_id:
-        print(f"{_RED}ID не может быть пустым.{_RESET}")
-        return False
-    if not 8 <= len(user_id) <= 64 or not all(c in "0123456789abcdefABCDEF" for c in user_id):
-        print(f"{_RED}ID должен быть шестнадцатеричным числом длиной от 8 до 64 символов (например, 063eb77c).{_RESET}")
         return False
 
-    servers = generate_all_servers(user_id)
+    servers = generate_all_servers(user_id) + [s for s in existing if s.get("host")]
 
     print(f"\n  {_GREEN}Будет создано {len(servers)} серверов:{_RESET}")
     for s in servers:
@@ -242,7 +293,8 @@ class App:
         self.selected = 0
         if active:
             self.current_mode = active.get('mode', 'dns')
-            self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'])
+            self.current_server = build_server(active['code'], COUNTRIES[active['code']], active['user_id'],
+                                               active.get('host'), active.get('port'))
             for i, srv in enumerate(self.servers, 1):
                 if srv['stamp'] == self.current_server['stamp']:
                     self.selected = i
@@ -265,9 +317,8 @@ class App:
         """Запускает пинг всех серверов в фоновых потоках параллельно."""
         def ping_one(server):
             code = server.get("code", "")
-            host = f"{code}.aeternia.space"
-            result = measure_ping(host)
-            self.pings[code] = result
+            result = measure_ping(server_host(server))
+            self.pings[server.get("url", code)] = result
             # Перерисовка после каждого пинга
             try:
                 self.draw()
@@ -303,7 +354,7 @@ class App:
             pass
 
     def _ping_str(self, code):
-        p = self.pings.get(code)
+        p = self.pings.get(code)  # ключ — url сервера
         if p is None:
             return "  ---  ", 0
         if p < 80:
@@ -384,7 +435,7 @@ class App:
                 is_active = bool(
                     self.current_server and srv["stamp"] == self.current_server["stamp"]
                 )
-                ping_s, ping_attr = self._ping_str(srv.get("code", ""))
+                ping_s, ping_attr = self._ping_str(srv.get("url", srv.get("code", "")))
                 if IS_MACOS:
                     ping_s += f"  {MODE_LABELS[server_mode(srv)]:5s}"
                 prefix = " > " if idx == self.selected else "   "
@@ -442,7 +493,10 @@ class App:
                     self._log('NAVIS недоступен без профиля WARP.', 'err')
                     self.draw()
                     return
-            self._macos_operation('enable', code=srv['code'], user_id=self.user_id, mode=mode)
+            params = {'code': srv['code'], 'user_id': self.user_id, 'mode': mode}
+            if srv.get('host'):
+                params.update(host=server_host(srv), port=server_port(srv))
+            self._macos_operation('enable', **params)
             return
         if not self.is_root:
             self._log("Нет прав root — запустите с sudo", "err")

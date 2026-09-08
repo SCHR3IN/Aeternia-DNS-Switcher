@@ -108,6 +108,20 @@ COUNTRIES = {
 
 DEFAULT_PORT = "8443"
 DEFAULT_PATH_PREFIX = "/dns-query/"
+DEFAULT_DOMAIN = "aeternia.space"
+HOST_RE = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$|^(?:\d{1,3}\.){3}\d{1,3}$")
+
+
+def server_host(server: dict) -> str:
+    """Хост DoH сервера: свой (host) или стандартный <код>.aeternia.space."""
+    return server.get("host") or f"{server['code']}.{DEFAULT_DOMAIN}"
+
+
+def server_port(server: dict) -> int:
+    try:
+        return int(server.get("port") or DEFAULT_PORT)
+    except (TypeError, ValueError):
+        return int(DEFAULT_PORT)
 
 
 # ─── DNS Stamp ───────────────────────────────────────────────────────────────
@@ -126,12 +140,19 @@ def generate_doh_stamp(hostname_port: str, path: str) -> str:
     return f"sdns://{encoded}"
 
 
-def build_server(code: str, name: str, user_id: str) -> dict:
-    hostname_port = f"{code}.aeternia.space:{DEFAULT_PORT}"
+def build_server(code: str, name: str, user_id: str, host: Optional[str] = None,
+                 port: Optional[int] = None) -> dict:
+    """host/port заданы для своего сервера (SmartDNS-Server); иначе Aeternia."""
+    host = host or f"{code}.{DEFAULT_DOMAIN}"
+    port = int(port or DEFAULT_PORT)
+    hostname_port = f"{host}:{port}"
     path = f"{DEFAULT_PATH_PREFIX}{user_id}"
     url = f"https://{hostname_port}{path}"
     stamp = generate_doh_stamp(hostname_port, path)
-    return {"name": name, "code": code, "url": url, "stamp": stamp}
+    server = {"name": name, "code": code, "url": url, "stamp": stamp}
+    if host != f"{code}.{DEFAULT_DOMAIN}" or port != int(DEFAULT_PORT):
+        server.update(host=host, port=port)
+    return server
 
 
 def generate_all_servers(user_id: str) -> list:
@@ -451,14 +472,14 @@ def measure_ping(hostname: str) -> Optional[float]:
 def measure_all_pings(servers: list) -> dict:
     result = {}
     for s in servers:
-        host = f"{s['code']}.aeternia.space"
+        host = server_host(s)
         result[s["code"]] = measure_ping(host)
     return result
 
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
