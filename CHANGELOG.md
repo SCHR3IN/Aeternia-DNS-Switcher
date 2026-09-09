@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.4] — 2026-09-10
+
+### Исправлено
+- Linux: при выборе сервера systemd-resolved переводится на dnscrypt-proxy (127.0.2.1, вставка `/etc/systemd/resolved.conf.d/aeternia-dns.conf`), при «Без прокси» вставка снимается. Раньше Ubuntu продолжала спрашивать DNS провайдера, хотя dnscrypt-proxy был запущен.
+
+---
+
 ## [2.4.3] — 2026-09-09
 
 ### Изменено

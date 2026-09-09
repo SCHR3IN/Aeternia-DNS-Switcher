@@ -381,7 +381,31 @@ def restart_services() -> tuple[bool, str]:
                     return False, f"Ошибка рестарта {svc}: {r.stderr.strip()}"
             except FileNotFoundError:
                 return False, "systemctl не найден"
+        resolved_use_proxy(True)
         return True, "OK"
+
+
+RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/aeternia-dns.conf")
+
+
+def resolved_use_proxy(enable: bool) -> None:
+    """Linux: направляет systemd-resolved на dnscrypt-proxy (127.0.2.1) или снимает эту настройку.
+
+    Без этого Ubuntu продолжает спрашивать DNS провайдера, хотя dnscrypt-proxy запущен.
+    Если systemd-resolved не используется, ничего не делает."""
+    if not IS_LINUX or not shutil.which("resolvectl"):
+        return
+    try:
+        if enable:
+            RESOLVED_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+            RESOLVED_DROPIN.write_text("[Resolve]\nDNS=127.0.2.1\nDomains=~.\nDNSOverTLS=no\n")
+        elif RESOLVED_DROPIN.exists():
+            RESOLVED_DROPIN.unlink()
+        else:
+            return
+        run_cmd(["systemctl", "restart", "systemd-resolved"], timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def stop_services() -> tuple[bool, str]:
@@ -396,6 +420,7 @@ def stop_services() -> tuple[bool, str]:
                 run_cmd(["systemctl", "disable", svc])
             except FileNotFoundError:
                 return False, "systemctl не найден"
+        resolved_use_proxy(False)
         run_cmd(["systemctl", "restart", "systemd-resolved"], timeout=10)
         return True, "dnscrypt-proxy остановлен, DNS по умолчанию"
 
@@ -488,7 +513,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.4.3"
+VERSION = "2.4.4"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
