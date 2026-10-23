@@ -21,8 +21,8 @@ from dns_utils import (
     check_config_file, restart_services, get_service_statuses,
     check_dns, rollback_config,
     measure_ping, measure_all_pings,
-    VERSION, check_for_update, run_update,
-    IS_MACOS, IS_LINUX,
+    VERSION, GITHUB_REPO, check_for_update, run_update,
+    IS_MACOS, IS_LINUX, IS_WINDOWS, LISTEN_ADDR, is_admin,
     macos_request, MACOS_ROOT,
     stop_services, unpatch_config,
     MODES, MODE_LABELS, server_mode, read_atlas_warp_profile, ATLAS_WARP_PROFILE,
@@ -56,11 +56,15 @@ def pre_flight_check() -> bool:
     print_banner()
 
     # 1. Проверка root
-    if not IS_MACOS and os.geteuid() != 0:
-        print(f"{_YELLOW}⚠  Приложение запущено без прав root.{_RESET}")
-        print("   Для работы необходим sudo.")
-        print()
-        print("   sudo python3 aeternia_dns_switcher.py")
+    if not IS_MACOS and not is_admin():
+        if IS_WINDOWS:
+            print(f"{_YELLOW}⚠  Программа запущена без прав администратора.{_RESET}")
+            print("   Запустите её через ярлык «Aeternia DNS» или «Запуск от имени администратора».")
+        else:
+            print(f"{_YELLOW}⚠  Приложение запущено без прав root.{_RESET}")
+            print("   Для работы необходим sudo.")
+            print()
+            print("   sudo python3 aeternia_dns_switcher.py")
         print()
         ans = input("Продолжить в режиме просмотра? [y/N]: ")
         if ans.strip().lower() != "y":
@@ -74,6 +78,9 @@ def pre_flight_check() -> bool:
         if IS_MACOS:
             print('Установите помощник: brew install dnscrypt-proxy, затем sudo bash install.sh')
             return False
+        if IS_WINDOWS:
+            print(f"  {_RED}✗ {install_dnscrypt_proxy()[1]}{_RESET}")
+            return False
         print(f"\n{_RED}{'═' * 50}{_RESET}")
         print(f"{_RED}{_BOLD}  ⚠  dnscrypt-proxy НЕ установлен!{_RESET}")
         print(f"{_RED}{'═' * 50}{_RESET}")
@@ -85,7 +92,7 @@ def pre_flight_check() -> bool:
         if choice != "1":
             print("Выход.")
             return False
-        if os.geteuid() != 0:
+        if not is_admin():
             print(f"{_RED}Для установки нужен root. Запустите: sudo python3 aeternia_dns_switcher.py{_RESET}")
             return False
         print(f"\n{_CYAN}Устанавливаю dnscrypt-proxy...{_RESET}")
@@ -103,7 +110,7 @@ def pre_flight_check() -> bool:
         print(f"  {_GREEN}✓ Найдено серверов: {len(servers)} (ID: {user_id}){_RESET}")
     else:
         print(f"  {_YELLOW}Серверы не настроены.{_RESET}")
-        if not IS_MACOS and os.geteuid() != 0:
+        if not IS_MACOS and not is_admin():
             print(f"  {_RED}Для настройки нужен root.{_RESET}")
             return False
         if not add_servers_wizard():
@@ -230,7 +237,7 @@ class App:
         self.scr = stdscr
         self.selected = 0
         self.log_lines = []
-        self.is_root = os.geteuid() == 0
+        self.is_root = is_admin()
         self.last_backup = None
         self.svc_statuses = {}
         self.current_server = None
@@ -403,7 +410,7 @@ class App:
         if IS_MACOS and self.current_mode == 'navis':
             listen_addr = "198.18.2.2 (туннель WARP)"
         else:
-            listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
+            listen_addr = LISTEN_ADDR
         self._put(row, 2, f"Локальный DNS:  {listen_addr}")
         if IS_MACOS:
             warp = "готов" if self.warp_ready else "не настроен (W)"
@@ -582,7 +589,7 @@ class App:
         self.draw()
 
         # DNS test
-        listen_addr = "127.0.0.1" if IS_MACOS else "127.0.2.1"
+        listen_addr = LISTEN_ADDR
         self._step(f"Проверяю DNS: dig google.com @{listen_addr}...")
         dns_ok, dns_msg = check_dns()
         if dns_ok:
@@ -776,6 +783,10 @@ class App:
         self.draw()
 
     def do_update(self):
+        if IS_WINDOWS:
+            self._log(f'Новые версии: github.com/{GITHUB_REPO}/releases, запустите свежий AeterniaDNS-Setup.exe.', 'info')
+            self.draw()
+            return
         if IS_MACOS:
             self._log('Для обновления запустите новый установщик через sudo bash install.sh.', 'info')
             self.draw()
@@ -849,6 +860,9 @@ class App:
 
 def cli_update():
     """Обновление через командную строку: sudo aeternia-dns-switcher --update"""
+    if IS_WINDOWS:
+        print(f'Скачайте свежий AeterniaDNS-Setup.exe: https://github.com/{GITHUB_REPO}/releases/latest')
+        return
     if IS_MACOS:
         print('На macOS обновляйте программу новым установщиком: sudo bash install.sh')
         return
@@ -878,6 +892,14 @@ def cli_update():
 
 def cli_uninstall():
     """Удаление через командную строку: sudo aeternia-dns-switcher --uninstall"""
+    if IS_WINDOWS:
+        # Вызывается деинсталлятором без вопросов: вернуть DNS и удалить службу.
+        import windows_dns
+        notes = windows_dns.uninstall()
+        print("DNS восстановлены, служба dnscrypt-proxy удалена.")
+        for note in notes:
+            print("  " + note)
+        return
     if IS_MACOS:
         import subprocess
         command = ['/usr/bin/python3', '-I', '-S', str(MACOS_ROOT / 'macos_install.py'), '--uninstall']
@@ -957,6 +979,12 @@ def cli_uninstall():
 
 
 def main():
+    if IS_WINDOWS:
+        os.system("")  # включает цветной вывод в консоли Windows
+    if len(sys.argv) > 1 and sys.argv[1] == "--version":
+        print(VERSION)
+        sys.exit(0)
+
     # CLI: --update
     if len(sys.argv) > 1 and sys.argv[1] in ("--update", "update"):
         cli_update()

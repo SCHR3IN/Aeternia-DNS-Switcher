@@ -18,11 +18,16 @@ from urllib.parse import urlparse
 
 IS_MACOS = platform.system() == "Darwin"
 IS_LINUX = platform.system() == "Linux"
+IS_WINDOWS = platform.system() == "Windows"
+if IS_WINDOWS:
+    import windows_dns as _win
 
 # ─── Пути ────────────────────────────────────────────────────────────────────
 
 def _detect_config_path() -> Path:
     """Detect dnscrypt-proxy config path based on OS."""
+    if IS_WINDOWS:
+        return _win.CONFIG_PATH
     if IS_MACOS:
         # Homebrew: Apple Silicon vs Intel
         for p in ["/opt/homebrew/etc/dnscrypt-proxy.toml",
@@ -38,6 +43,16 @@ CONFIG_PATH = _detect_config_path()
 SERVERS_PATH = Path("/etc/aeternia-dns/servers.json") if IS_LINUX else Path.home() / ".config" / "aeternia-dns" / "servers.json"
 if IS_MACOS:
     SERVERS_PATH = Path.home() / 'Library/Application Support/Aeternia DNS/servers.json'
+if IS_WINDOWS:
+    SERVERS_PATH = _win.SERVERS_PATH
+# Адрес, на котором слушает dnscrypt-proxy (на Linux пакет из apt занимает 127.0.2.1).
+LISTEN_ADDR = "127.0.2.1" if IS_LINUX else "127.0.0.1"
+
+
+def is_admin() -> bool:
+    if IS_WINDOWS:
+        return _win.is_admin()
+    return os.geteuid() == 0
 SERVER_NAME = "aeternia-doh"
 MACOS_HELPER = Path('/Library/PrivilegedHelperTools/space.aeternia.dns-helper')
 MACOS_ROOT = Path('/Library/PrivilegedHelperTools/space.aeternia.dns')
@@ -174,7 +189,7 @@ def load_servers() -> tuple[list, str]:
     if not SERVERS_PATH.exists():
         return [], ""
     try:
-        data = json.loads(SERVERS_PATH.read_text())
+        data = json.loads(SERVERS_PATH.read_text(encoding="utf-8"))
         return data.get("servers", []), data.get("user_id", "")
     except Exception:
         return [], ""
@@ -184,7 +199,7 @@ def save_servers(servers: list, user_id: str) -> None:
     SERVERS_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     SERVERS_PATH.write_text(json.dumps(
         {"user_id": user_id, "servers": servers}, ensure_ascii=False, indent=2
-    ))
+    ), encoding="utf-8")
     if IS_MACOS:
         SERVERS_PATH.chmod(0o600)
 
@@ -192,12 +207,16 @@ def save_servers(servers: list, user_id: str) -> None:
 # ─── dnscrypt-proxy check/install ────────────────────────────────────────────
 
 def is_dnscrypt_installed() -> bool:
+    if IS_WINDOWS:
+        return _win.dnscrypt_exe().is_file()
     if IS_MACOS:
         return (MACOS_ROOT / 'dnscrypt-proxy').is_file() and MACOS_HELPER.is_file()
     return shutil.which("dnscrypt-proxy") is not None
 
 
 def install_dnscrypt_proxy() -> tuple[bool, str]:
+    if IS_WINDOWS:
+        return False, "dnscrypt-proxy входит в установщик: переустановите программу"
     try:
         if IS_MACOS:
             # macOS: установка через Homebrew
@@ -240,7 +259,9 @@ def install_dnscrypt_proxy() -> tuple[bool, str]:
 # ─── Config utilities ────────────────────────────────────────────────────────
 
 def read_config() -> str:
-    return CONFIG_PATH.read_text()
+    if IS_WINDOWS:
+        _win.ensure_config()
+    return CONFIG_PATH.read_text(encoding="utf-8")
 
 
 _BLOCK_RE = re.compile(r"""^\[static\.['"]aeternia-doh['"]\]\s*$""")
@@ -263,6 +284,8 @@ def get_current_server(text: str, servers: list) -> Optional[dict]:
 
 
 def backup_config() -> Path:
+    if IS_WINDOWS:
+        _win.ensure_config()
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     dst = CONFIG_PATH.parent / f"dnscrypt-proxy.toml.bak.{ts}"
     shutil.copy2(CONFIG_PATH, dst)
@@ -341,8 +364,8 @@ def unpatch_config(text: str) -> str:
 
 def write_config_atomic(text: str) -> None:
     tmp = CONFIG_PATH.with_suffix(".toml.tmp")
-    tmp.write_text(text)
-    tmp.rename(CONFIG_PATH)
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(CONFIG_PATH)  # rename в Windows не перезаписывает существующий файл
 
 
 # ─── System operations ───────────────────────────────────────────────────────
@@ -353,7 +376,8 @@ def run_cmd(cmd: list, timeout: int = 30):
 
 def check_config_file() -> tuple[bool, str]:
     try:
-        cmd = ["dnscrypt-proxy", "-check", "-config", str(CONFIG_PATH)]
+        exe = str(_win.dnscrypt_exe()) if IS_WINDOWS else "dnscrypt-proxy"
+        cmd = [exe, "-check", "-config", str(CONFIG_PATH)]
         if IS_LINUX:
             cmd = ["timeout", "20s"] + cmd
         r = run_cmd(cmd, timeout=25)
@@ -367,6 +391,17 @@ def check_config_file() -> tuple[bool, str]:
         return False, "dnscrypt-proxy не найден в PATH"
 
 def restart_services() -> tuple[bool, str]:
+    if IS_WINDOWS:
+        def ready():
+            try:
+                return dns_query_ok("example.com", LISTEN_ADDR, 2)
+            except OSError:
+                return False
+        try:
+            _win.restart(ready)
+            return True, "OK"
+        except Exception as e:
+            return False, str(e)
     if IS_MACOS:
         result = macos_request('status')
         if not result.get('ok') or not result.get('active'):
@@ -410,6 +445,12 @@ def resolved_use_proxy(enable: bool) -> None:
 
 def stop_services() -> tuple[bool, str]:
     """Останавливает dnscrypt-proxy."""
+    if IS_WINDOWS:
+        try:
+            notes = _win.stop()
+        except Exception as e:
+            return False, str(e)
+        return True, "DNS восстановлены, dnscrypt-proxy остановлен" + (f" ({'; '.join(notes)})" if notes else "")
     if IS_MACOS:
         result = macos_request('disable')
         return result['ok'], result['message']
@@ -427,7 +468,7 @@ def stop_services() -> tuple[bool, str]:
 
 def enable_services() -> tuple[bool, str]:
     """Включает и запускает dnscrypt-proxy."""
-    if IS_MACOS:
+    if IS_MACOS or IS_WINDOWS:
         return restart_services()
     else:
         for svc in ["dnscrypt-proxy.socket", "dnscrypt-proxy.service"]:
@@ -442,6 +483,8 @@ def enable_services() -> tuple[bool, str]:
 
 
 def get_service_statuses() -> dict:
+    if IS_WINDOWS:
+        return {'dnscrypt-proxy': 'active' if _win.service_running() else 'inactive'}
     if IS_MACOS:
         result = macos_request('status')
         return {'dnscrypt-proxy': ('active' if result.get('running') else 'none')
@@ -457,8 +500,32 @@ def get_service_statuses() -> dict:
         return out
 
 
+def dns_query_ok(name: str, server: str, timeout: float = 5, port: int = 53) -> bool:
+    """Запрос A-записи по UDP без внешних утилит (на Windows нет dig)."""
+    import random
+    import socket
+    qid = random.randint(0, 0xFFFF)
+    packet = qid.to_bytes(2, "big") + b"\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"
+    for label in name.split("."):
+        packet += bytes([len(label)]) + label.encode()
+    packet += b"\x00\x00\x01\x00\x01"
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(timeout)
+        sock.sendto(packet, (server, port))
+        reply = sock.recv(4096)
+    # Тот же ID, RCODE=0 (NOERROR) и хотя бы одна запись в ответе.
+    return reply[:2] == packet[:2] and reply[3] & 0x0F == 0 and int.from_bytes(reply[6:8], "big") > 0
+
+
 def check_dns() -> tuple[bool, str]:
-    listen_addr = "127.0.2.1" if IS_LINUX else "127.0.0.1"
+    listen_addr = LISTEN_ADDR
+    if IS_WINDOWS:
+        try:
+            if dns_query_ok("google.com", listen_addr):
+                return True, f"google.com разрешён через {listen_addr}"
+            return False, "Нет ответа с записями от локального DNS"
+        except OSError as e:
+            return False, f"Локальный DNS не отвечает: {e}"
     try:
         r = run_cmd(["dig", "google.com", f"@{listen_addr}", "+time=5", "+tries=2"], timeout=15)
         if r.returncode != 0:
@@ -489,8 +556,19 @@ def rollback_config(backup: Path) -> tuple[bool, str]:
 
 # ─── Ping ────────────────────────────────────────────────────────────────────
 
+def parse_windows_ping(text: str) -> Optional[float]:
+    """Вывод ping зависит от языка Windows: time=12ms, время=12мс, time<1ms."""
+    m = re.search(r"[=<]\s*(\d+)\s*(?:ms|мс)", text)
+    return float(m.group(1)) if m else None
+
+
 def measure_ping(hostname: str) -> Optional[float]:
     try:
+        if IS_WINDOWS:
+            r = subprocess.run(["ping", "-n", "1", "-w", "3000", hostname],
+                               capture_output=True, timeout=5,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            return parse_windows_ping(r.stdout.decode("oem", errors="replace"))
         # macOS ping: -W в миллисекундах, Linux: в секундах
         w_flag = "3000" if IS_MACOS else "3"
         r = subprocess.run(
@@ -513,7 +591,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.4.4"
+VERSION = "2.5.0"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 

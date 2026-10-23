@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.4.4-blue" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.5.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20macOS-orange" alt="Platform">
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
 </p>
@@ -74,7 +74,7 @@ sudo bash install.sh
 Откройте обычный Терминал и вставьте строку целиком, **без sudo перед `/bin/bash`**:
 
 ```bash
-/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.4.4')"
+/bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/SCHR3IN/Aeternia-DNS-Switcher/main/install-macos.sh?v=2.5.0')"
 ```
 
 Команда скачает свежий установщик, проверит Homebrew и DNS-движок, установит
@@ -83,7 +83,7 @@ sudo bash install.sh
 Дополнительные подтверждения установки зависимостей могут потребоваться при первом запуске.
 Для восстановления не используйте `--update` старой версии 2.1.0.
 
-Версия 2.4.4 использует отдельный системный помощник. Пароль администратора
+Версия 2.5.0 использует отдельный системный помощник. Пароль администратора
 нужен при установке/обновлении/удалении. Открытие приложения и переключение DNS
 выполняются без пароля. Право выдается только пользователю, который запустил установку.
 
@@ -111,6 +111,21 @@ Homebrew-службу отдельно запускать не нужно. Ус�
 Подробности восстановления, перехода со старой версии и проверки на Mac:
 [MACOS.md](MACOS.md).
 
+### Windows 10 и 11
+
+Скачайте **AeterniaDNS-Setup.exe** из [последнего релиза](https://github.com/SCHR3IN/Aeternia-DNS-Switcher/releases/latest)
+и запустите. Установщик ставит программу в `C:\Program Files\Aeternia DNS`, кладёт рядом dnscrypt-proxy
+и создаёт ярлык «Aeternia DNS» в меню Пуск и на рабочем столе. Программа открывается в окне консоли
+с тем же интерфейсом и клавишами, что на macOS и Linux, и запрашивает права администратора.
+
+При выборе сервера dnscrypt-proxy работает как служба Windows на `127.0.0.1`, а все включённые
+сетевые адаптеры переводятся на неё. Исходные DNS каждого адаптера (DHCP или ручные) сохраняются
+в `C:\ProgramData\AeterniaDNS\dns-state.json` до изменений и возвращаются пунктом «Без прокси»,
+при удалении программы и при обновлении. Системный DNS переключается только после того,
+как dnscrypt-proxy ответил: при недоступном сервере интернет не пропадает.
+
+Удаление: «Параметры → Приложения → Aeternia DNS Switcher» или ярлык «Удалить Aeternia DNS».
+
 ### Обновление
 
 ```bash
@@ -136,6 +151,10 @@ sudo aeternia-dns-switcher --uninstall
 ```bash
 aeternia-dns-switcher --uninstall
 ```
+
+#### Windows
+
+«Параметры → Приложения → Aeternia DNS Switcher → Удалить». Исходные DNS вернутся автоматически.
 
 ---
 
