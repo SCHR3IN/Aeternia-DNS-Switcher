@@ -28,8 +28,9 @@ def ps(command):
 
 def system_dns():
     out = ps("Get-NetAdapter | Where-Object Status -eq 'Up' | ForEach-Object { "
-             "[pscustomobject]@{guid=\"$($_.InterfaceGuid)\"; dns=@(Get-DnsClientServerAddress "
-             "-InterfaceIndex $_.ifIndex | ForEach-Object ServerAddresses)} } | ConvertTo-Json -Compress")
+             "$c = @(Get-DnsClientServerAddress -InterfaceIndex $_.ifIndex -ErrorAction SilentlyContinue); "
+             "if ($c) { [pscustomobject]@{guid=\"$($_.InterfaceGuid)\"; dns=@($c | ForEach-Object ServerAddresses)} } "
+             "} | ConvertTo-Json -Compress")
     data = json.loads(out or "[]")
     data = data if isinstance(data, list) else [data]
     return {d["guid"]: sorted(d["dns"] or []) for d in data}

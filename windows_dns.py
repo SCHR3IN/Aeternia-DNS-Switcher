@@ -80,9 +80,12 @@ def _split(value):
 
 
 def active_interfaces():
-    """Включённые адаптеры и их ручные DNS из реестра (пусто означает DHCP)."""
+    """Включённые адаптеры с DNS-клиентом и их ручные DNS из реестра (пусто означает DHCP).
+
+    Адаптеры без DNS-клиента (бывают у виртуальных) пропускаем: задать им DNS нельзя."""
     script = (
         "$r = foreach ($a in Get-NetAdapter | Where-Object Status -eq 'Up') { "
+        "if (-not (Get-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ErrorAction SilentlyContinue)) { continue }; "
         "$g = $a.InterfaceGuid; "
         "$v4 = (Get-ItemProperty \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$g\" "
         "-Name NameServer -ErrorAction SilentlyContinue).NameServer; "
@@ -128,7 +131,13 @@ def use_local_dns():
     r = _ps(f"foreach ($i in @({indexes})) {{ Set-DnsClientServerAddress -InterfaceIndex $i "
             f"-ServerAddresses ('127.0.0.1','::1') }}; Clear-DnsClientCache")
     if r.returncode != 0:
-        raise RuntimeError(f"Не удалось задать DNS: {r.stderr.strip()[:200]}")
+        # Часть адаптеров могла уже переключиться: возвращаем все по журналу.
+        try:
+            restore_dns()
+            recovery = "исходные DNS возвращены"
+        except Exception as error:
+            recovery = f"возврат не завершён ({error}), выберите «Без прокси»"
+        raise RuntimeError(f"Не удалось задать DNS: {r.stderr.strip()[:200]}; {recovery}")
 
 
 def restore_dns():

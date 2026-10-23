@@ -64,6 +64,17 @@ class SystemDnsTests(unittest.TestCase):
         w.use_local_dns()
         self.assertEqual(w.load_state()["interfaces"]["{WIFI}"]["dns"], ["8.8.8.8"])
 
+    def test_failed_switch_rolls_back_adapters_already_switched(self):
+        def ps(script, timeout=60):
+            self.scripts.append(script)
+            return done(returncode=1, stderr="No MSFT_DNSClientServerAddress objects") \
+                if "'127.0.0.1','::1'" in script else done()
+        with patch.object(w, "_ps", ps):
+            with self.assertRaisesRegex(RuntimeError, "исходные DNS возвращены"):
+                w.use_local_dns()
+        self.assertIn("-InterfaceIndex 7 -ResetServerAddresses", self.scripts[-1])
+        self.assertEqual(w.load_state(), {"interfaces": {}})
+
     def test_restore_dhcp_and_static_then_clear_journal(self):
         w.use_local_dns()
         self.scripts.clear()
