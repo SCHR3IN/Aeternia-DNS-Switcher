@@ -1,0 +1,80 @@
+name: Windows build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      DNSCRYPT_VERSION: '2.1.20'
+      DNSCRYPT_SHA256: '9e498cb9bdbae57756db19ce516362ac307e9340a6996214964cfcc7c489abc3'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p "test_windows.py" -v
+      - name: Download dnscrypt-proxy (checksum pinned)
+        shell: pwsh
+        run: |
+          $zip = "dnscrypt.zip"
+          Invoke-WebRequest "https://github.com/DNSCrypt/dnscrypt-proxy/releases/download/$env:DNSCRYPT_VERSION/dnscrypt-proxy-win64-$env:DNSCRYPT_VERSION.zip" -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:DNSCRYPT_SHA256) { throw "checksum mismatch: $hash" }
+          Expand-Archive $zip -DestinationPath build\dnscrypt-zip
+          New-Item -ItemType Directory -Force build\dnscrypt | Out-Null
+          Copy-Item build\dnscrypt-zip\win64\dnscrypt-proxy.exe, build\dnscrypt-zip\win64\LICENSE build\dnscrypt\
+      - name: Build AeterniaDNS.exe
+        shell: pwsh
+        run: |
+          python -m pip install --quiet pyinstaller windows-curses pillow
+          python -c "from PIL import Image; Image.open('logo.png').save('build/icon.ico', sizes=[(256,256),(64,64),(48,48),(32,32),(16,16)])"
+          pyinstaller --noconfirm --onedir --console --uac-admin --name AeterniaDNS --icon build/icon.ico --hidden-import windows_dns aeternia_dns_switcher.py
+          $v = & dist\AeterniaDNS\AeterniaDNS.exe --version
+          if ($v.Trim() -ne (Get-Content VERSION -Raw).Trim()) { throw "exe version '$v'" }
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $env:APP_VERSION = (Get-Content VERSION -Raw).Trim()
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
+          & $iscc packaging\windows\AeterniaDNS.iss
+          if ($LASTEXITCODE) { throw "ISCC failed" }
+      - name: Install and connect on this Windows
+        shell: pwsh
+        run: |
+          Start-Process dist\AeterniaDNS-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=desktopicon' -Wait
+          & "C:\Program Files\Aeternia DNS\AeterniaDNS.exe" --version
+          python packaging\windows\integration_test.py
+      - name: Uninstall restores DNS and removes the service
+        shell: pwsh
+        run: |
+          Start-Process "C:\Program Files\Aeternia DNS\unins000.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES' -Wait
+          Start-Sleep 3
+          sc.exe query dnscrypt-proxy
+          if ($LASTEXITCODE -ne 1060) { throw "service still installed" }
+          python packaging\windows\integration_test.py --check-restored
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AeterniaDNS-Setup
+          path: dist/AeterniaDNS-Setup.exe
+      - name: Attach installer to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view $env:GITHUB_REF_NAME *> $null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:GITHUB_REF_NAME aeternia-dns-installer.sh --title $env:GITHUB_REF_NAME --notes "См. CHANGELOG.md" }
+          gh release upload $env:GITHUB_REF_NAME dist/AeterniaDNS-Setup.exe --clobber
