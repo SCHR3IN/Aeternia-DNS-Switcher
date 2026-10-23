@@ -556,15 +556,19 @@ def rollback_config(backup: Path) -> tuple[bool, str]:
 
 # ─── Ping ────────────────────────────────────────────────────────────────────
 
+def parse_windows_ping(text: str) -> Optional[float]:
+    """Вывод ping зависит от языка Windows: time=12ms, время=12мс, time<1ms."""
+    m = re.search(r"[=<]\s*(\d+)\s*(?:ms|мс)", text)
+    return float(m.group(1)) if m else None
+
+
 def measure_ping(hostname: str) -> Optional[float]:
     try:
         if IS_WINDOWS:
-            # Вывод ping зависит от языка системы: time=12ms, время=12мс, time<1ms.
             r = subprocess.run(["ping", "-n", "1", "-w", "3000", hostname],
                                capture_output=True, timeout=5,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            m = re.search(r"[=<]\s*(\d+)\s*(?:ms|мс)", r.stdout.decode("oem", errors="replace"))
-            return float(m.group(1)) if m else None
+            return parse_windows_ping(r.stdout.decode("oem", errors="replace"))
         # macOS ping: -W в миллисекундах, Linux: в секундах
         w_flag = "3000" if IS_MACOS else "3"
         r = subprocess.run(

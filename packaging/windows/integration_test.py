@@ -78,7 +78,8 @@ check(ok, f"локальный DNS отвечает: {msg}")
 check(SERVER_IP in resolve("chatgpt.com"), "chatgpt.com резолвится в наш сервер")
 direct = resolve("example.com")
 check(direct and SERVER_IP not in direct, f"example.com резолвится честно: {direct}")
-check(d.measure_ping("1.1.1.1") is not None, "пинг на Windows разбирается")
+# Исходящий ICMP в облаке GitHub закрыт, поэтому настоящий вывод ping берём с локального адреса.
+check(d.measure_ping("127.0.0.1") is not None, "вывод ping Windows разбирается")
 
 ok, msg = d.stop_services()
 check(ok, f"«Без прокси»: {msg}")

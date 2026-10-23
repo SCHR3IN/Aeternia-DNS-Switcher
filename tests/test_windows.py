@@ -169,6 +169,16 @@ class DnsQueryTests(unittest.TestCase):
         self.assertFalse(d.dns_query_ok("google.com", "127.0.0.1", 2, self.serve_once(1, rcode=3)))
 
 
+class PingTests(unittest.TestCase):
+    def test_english_and_russian_windows_output(self):
+        self.assertEqual(d.parse_windows_ping("Reply from 1.1.1.1: bytes=32 time=12ms TTL=57"), 12.0)
+        self.assertEqual(d.parse_windows_ping("Reply from 127.0.0.1: bytes=32 time<1ms TTL=128"), 1.0)
+        self.assertEqual(d.parse_windows_ping("Ответ от 1.1.1.1: число байт=32 время=45мс TTL=57"), 45.0)
+        self.assertEqual(d.parse_windows_ping("Ответ от 127.0.0.1: число байт=32 время<1мс TTL=128"), 1.0)
+        self.assertIsNone(d.parse_windows_ping("Request timed out."))
+        self.assertIsNone(d.parse_windows_ping("Превышен интервал ожидания для запроса."))
+
+
 class ConfigTests(unittest.TestCase):
     def test_base_config_listens_locally_and_accepts_our_server(self):
         stamp = d.build_server("fi", "Мой сервер", "", "203.0.113.10", 8443)["stamp"]
