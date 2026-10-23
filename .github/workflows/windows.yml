@@ -51,12 +51,24 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress | Out-Null }
           & $iscc packaging\windows\AeterniaDNS.iss
           if ($LASTEXITCODE) { throw "ISCC failed" }
-      - name: Install and connect on this Windows
+      - name: Install
         shell: pwsh
         run: |
           Start-Process dist\AeterniaDNS-Setup.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/TASKS=desktopicon' -Wait
           & "C:\Program Files\Aeternia DNS\AeterniaDNS.exe" --version
-          python packaging\windows\integration_test.py
+      - name: Interface starts in a real console window
+        shell: pwsh
+        run: |
+          # Сервер в списке, чтобы программа не ждала ввода в мастере и дошла до интерфейса.
+          python -c "import dns_utils as d; d.save_servers([d.build_server('fi', 'Тест', '', '203.0.113.10', 8443)], '')"
+          $p = Start-Process "C:\Program Files\Aeternia DNS\AeterniaDNS.exe" -PassThru
+          Start-Sleep 15
+          if ($p.HasExited) { throw "interface exited with code $($p.ExitCode)" }
+          Stop-Process -Id $p.Id -Force
+          Remove-Item "$env:ProgramData\AeterniaDNS\servers.json"
+      - name: Connect through the Smart DNS server
+        shell: pwsh
+        run: python packaging\windows\integration_test.py
       - name: Uninstall restores DNS and removes the service
         shell: pwsh
         run: |
