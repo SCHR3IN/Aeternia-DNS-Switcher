@@ -40,7 +40,10 @@ jobs:
         run: |
           python -m pip install --quiet pyinstaller windows-curses pillow
           python -c "from PIL import Image; Image.open('logo.png').save('build/icon.ico', sizes=[(256,256),(64,64),(48,48),(32,32),(16,16)])"
-          pyinstaller --noconfirm --onedir --console --uac-admin --name AeterniaDNS --icon build/icon.ico --hidden-import windows_dns aeternia_dns_switcher.py
+          # Пресет серверов есть только в сборках со встроенными серверами
+          $extra = @()
+          if (Test-Path servers.preset.json) { $extra = @('--add-data', 'servers.preset.json;.') }
+          pyinstaller --noconfirm --onedir --console --uac-admin --name AeterniaDNS --icon build/icon.ico --hidden-import windows_dns @extra aeternia_dns_switcher.py
           $v = & dist\AeterniaDNS\AeterniaDNS.exe --version
           if ($v.Trim() -ne (Get-Content VERSION -Raw).Trim()) { throw "exe version '$v'" }
       - name: Build installer
@@ -60,11 +63,15 @@ jobs:
         shell: pwsh
         run: |
           # Сервер в списке, чтобы программа не ждала ввода в мастере и дошла до интерфейса.
-          python -c "import dns_utils as d; d.save_servers([d.build_server('fi', 'Тест', '', '203.0.113.10', 8443)], '')"
+          # В сборке с пресетом список должна создать сама программа из встроенного пресета.
+          $preset = Test-Path servers.preset.json
+          if ($preset) { Remove-Item "$env:ProgramData\AeterniaDNS\servers.json" -ErrorAction SilentlyContinue }
+          else { python -c "import dns_utils as d; d.save_servers([d.build_server('fi', 'Тест', '', '203.0.113.10', 8443)], '')" }
           $p = Start-Process "C:\Program Files\Aeternia DNS\AeterniaDNS.exe" -PassThru
           Start-Sleep 15
           if ($p.HasExited) { throw "interface exited with code $($p.ExitCode)" }
           Stop-Process -Id $p.Id -Force
+          if ($preset -and -not (Test-Path "$env:ProgramData\AeterniaDNS\servers.json")) { throw "bundled preset was not applied" }
           Remove-Item "$env:ProgramData\AeterniaDNS\servers.json"
       - name: Connect through the Smart DNS server
         shell: pwsh
