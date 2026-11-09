@@ -18,6 +18,11 @@ B64_MAC_HELPER=$(base64 < "$SRC_DIR/macos_helper.py" | tr -d '\r\n')
 B64_MAC_INSTALL=$(base64 < "$SRC_DIR/macos_install.py" | tr -d '\r\n')
 # Необязательный пресет серверов: есть только в сборках со встроенными серверами
 PRESET_LINE=""
+FORWARD_LINE=""
+if [ -f "$SRC_DIR/forwarding-rules.txt" ]; then
+    B64_FORWARD=$(base64 < "$SRC_DIR/forwarding-rules.txt" | tr -d '\r\n')
+    FORWARD_LINE="echo \"$B64_FORWARD\" | decode_base64 > \"\$AETERNIA_TMP/forwarding-rules.txt\""
+fi
 if [ -f "$SRC_DIR/servers.preset.json" ]; then
     B64_PRESET=$(base64 < "$SRC_DIR/servers.preset.json" | tr -d '\r\n')
     PRESET_LINE="echo \"$B64_PRESET\" | decode_base64 > \"\$AETERNIA_TMP/servers.preset.json\""
@@ -81,6 +86,7 @@ echo "$B64_LOGO" | decode_base64 > "\$AETERNIA_TMP/logo.png"
 echo "$B64_MAC_HELPER" | decode_base64 > "\$AETERNIA_TMP/macos_helper.py"
 echo "$B64_MAC_INSTALL" | decode_base64 > "\$AETERNIA_TMP/macos_install.py"
 $PRESET_LINE
+$FORWARD_LINE
 
 PAYLOAD_EOF
 

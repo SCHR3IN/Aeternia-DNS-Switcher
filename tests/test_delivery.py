@@ -35,8 +35,9 @@ class DeliveryTests(unittest.TestCase):
         files = re.findall(r'echo "([A-Za-z0-9+/=]+)" \| decode_base64 > "\$AETERNIA_TMP/([^"/]+)"', installer)
         expected = {'aeternia_dns_switcher.py', 'dns_utils.py', 'install.sh', 'logo.png',
                     'macos_helper.py', 'macos_install.py'}
-        if (REPO / 'servers.preset.json').is_file():
-            expected.add('servers.preset.json')
+        for optional in ('servers.preset.json', 'forwarding-rules.txt'):
+            if (REPO / optional).is_file():
+                expected.add(optional)
         self.assertEqual({name for _, name in files}, expected)
         for payload, name in files:
             with self.subTest(name=name):

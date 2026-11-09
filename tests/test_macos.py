@@ -518,3 +518,17 @@ class StopTests(unittest.TestCase):
     def test_not_loaded_needs_no_bootout(self):
         run, plist = self.run_stop([False])
         run.assert_not_called()
+
+
+class ForwardingRulesTests(unittest.TestCase):
+    def test_rules_file_is_referenced_only_when_installed(self):
+        target = {'code': 'fi', 'user_id': '', 'host': '203.0.113.10', 'port': 8443}
+        with tempfile.TemporaryDirectory() as temp:
+            rules = Path(temp) / 'forwarding-rules.txt'
+            with patch.object(h, 'FORWARDING_RULES', rules):
+                self.assertNotIn('forwarding_rules', h.config_for(target).decode())
+                rules.write_text('example.ru 77.88.8.8,77.88.8.1\n')
+                cfg = h.config_for(target).decode()
+        self.assertIn(f"forwarding_rules = '{rules}'", cfg)
+        # Ключ верхнего уровня TOML должен стоять до первой таблицы.
+        self.assertLess(cfg.index('forwarding_rules'), cfg.index('[static.'))
