@@ -1,7 +1,7 @@
 """Проверка на настоящем Windows (GitHub Actions, права администратора).
 
-Без аргументов: подключение к Smart DNS серверу через установленный dnscrypt-proxy,
-проверка резолва и возврата DNS. Программа остаётся подключённой, чтобы следующий шаг
+Без аргументов: подключение к публичному DoH-серверу через установленный dnscrypt-proxy,
+проверка резолва и возврата DNS. Свои серверы в публичных проверках не используются. Программа остаётся подключённой, чтобы следующий шаг
 проверил, что деинсталлятор сам вернёт исходные DNS.
 С --check-restored: DNS адаптеров совпадают со снимком до подключения.
 """
@@ -16,7 +16,8 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 os.environ.setdefault("AETERNIA_DNSCRYPT", r"C:\Program Files\Aeternia DNS\dnscrypt-proxy\dnscrypt-proxy.exe")
 SNAPSHOT = REPO / "build" / "dns-before.json"
-SERVER_IP = "85.204.18.19"
+# Публичный DoH Cloudflare: проверяет весь путь клиента, не завися от чьего-либо сервера.
+DOH_HOST, DOH_PORT = "cloudflare-dns.com", 443
 
 
 def ps(command):
@@ -65,7 +66,7 @@ SNAPSHOT.parent.mkdir(exist_ok=True)
 SNAPSHOT.write_text(json.dumps(before))
 print("исходные DNS:", before)
 
-server = d.build_server("fi", "Мой сервер", "", SERVER_IP, 8443)
+server = d.build_server("fi", "Тест", "", DOH_HOST, DOH_PORT)
 d.write_config_atomic(d.patch_config(d.read_config(), server["stamp"]))
 ok, out = d.check_config_file()
 check(ok, f"конфиг dnscrypt-proxy принят: {out[-120:]}")
@@ -75,9 +76,10 @@ check(d.get_service_statuses()["dnscrypt-proxy"] == "active", "служба в �
 check(all(v == ["127.0.0.1", "::1"] for v in system_dns().values()), "все адаптеры смотрят на 127.0.0.1 и ::1")
 ok, msg = d.check_dns()
 check(ok, f"локальный DNS отвечает: {msg}")
-check(SERVER_IP in resolve("chatgpt.com"), "chatgpt.com резолвится в наш сервер")
+proxied = resolve("chatgpt.com")
+check(bool(proxied), f"chatgpt.com резолвится через DoH: {proxied}")
 direct = resolve("example.com")
-check(direct and SERVER_IP not in direct, f"example.com резолвится честно: {direct}")
+check(bool(direct), f"example.com резолвится через DoH: {direct}")
 # Исходящий ICMP в облаке GitHub закрыт, поэтому настоящий вывод ping берём с локального адреса.
 check(d.measure_ping("127.0.0.1") is not None, "вывод ping Windows разбирается")
 

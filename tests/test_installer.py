@@ -16,8 +16,8 @@ installer = importlib.import_module('macos_install')
 
 class InstallerIdentityTests(unittest.TestCase):
     def setUp(self):
-        self.user = types.SimpleNamespace(pw_name='egormelnichenko', pw_uid=501,
-                                          pw_dir='/Users/egormelnichenko')
+        self.user = types.SimpleNamespace(pw_name='alice', pw_uid=501,
+                                          pw_dir='/Users/alice')
         self.root = types.SimpleNamespace(pw_name='root', pw_uid=0, pw_dir='/var/root')
         def by_uid(uid):
             if uid == 501:
@@ -37,7 +37,7 @@ class InstallerIdentityTests(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def test_direct_sudo_uses_original_uid(self):
-        with patch.dict(installer.os.environ, {'SUDO_UID': '501', 'SUDO_USER': 'egormelnichenko'}, clear=True):
+        with patch.dict(installer.os.environ, {'SUDO_UID': '501', 'SUDO_USER': 'alice'}, clear=True):
             self.assertEqual(installer.installation_account(), self.user)
 
     def test_double_sudo_recovers_console_user(self):
@@ -52,13 +52,13 @@ class InstallerIdentityTests(unittest.TestCase):
             self.assertEqual(installer.installation_account(), self.user)
 
     def test_valid_sudo_user_survives_zero_uid(self):
-        with patch.dict(installer.os.environ, {'SUDO_UID': '0', 'SUDO_USER': 'egormelnichenko'}, clear=True):
+        with patch.dict(installer.os.environ, {'SUDO_UID': '0', 'SUDO_USER': 'alice'}, clear=True):
             self.assertEqual(installer.installation_account(), self.user)
 
     def test_explicit_user_overrides_nested_sudo_and_console(self):
         with patch.dict(installer.os.environ, {'SUDO_UID': '0', 'SUDO_USER': 'root'}, clear=True), \
                 patch.object(installer.os, 'stat', side_effect=AssertionError('No console lookup needed')):
-            self.assertEqual(installer.installation_account('egormelnichenko'), self.user)
+            self.assertEqual(installer.installation_account('alice'), self.user)
 
     def test_no_logged_in_user_requires_explicit_target(self):
         with patch.dict(installer.os.environ, {'SUDO_UID': '0', 'SUDO_USER': 'root'}, clear=True), \
