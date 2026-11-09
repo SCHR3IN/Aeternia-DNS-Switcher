@@ -16,6 +16,12 @@ B64_INSTALL=$(base64 < "$SRC_DIR/install.sh" | tr -d '\r\n')
 B64_LOGO=$(base64 < "$SRC_DIR/logo.png" | tr -d '\r\n')
 B64_MAC_HELPER=$(base64 < "$SRC_DIR/macos_helper.py" | tr -d '\r\n')
 B64_MAC_INSTALL=$(base64 < "$SRC_DIR/macos_install.py" | tr -d '\r\n')
+# Необязательный пресет серверов: есть только в сборках со встроенными серверами
+PRESET_LINE=""
+if [ -f "$SRC_DIR/servers.preset.json" ]; then
+    B64_PRESET=$(base64 < "$SRC_DIR/servers.preset.json" | tr -d '\r\n')
+    PRESET_LINE="echo \"$B64_PRESET\" | decode_base64 > \"\$AETERNIA_TMP/servers.preset.json\""
+fi
 
 cat > "$OUT" << 'HEADER_EOF'
 #!/usr/bin/env bash
@@ -74,6 +80,7 @@ echo "$B64_INSTALL" | decode_base64 > "\$AETERNIA_TMP/install.sh"
 echo "$B64_LOGO" | decode_base64 > "\$AETERNIA_TMP/logo.png"
 echo "$B64_MAC_HELPER" | decode_base64 > "\$AETERNIA_TMP/macos_helper.py"
 echo "$B64_MAC_INSTALL" | decode_base64 > "\$AETERNIA_TMP/macos_install.py"
+$PRESET_LINE
 
 PAYLOAD_EOF
 

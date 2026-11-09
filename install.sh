@@ -29,7 +29,7 @@ REAL_HOME=$(eval echo "~$REAL_USER")
 
 if [[ "$1" == "--uninstall" || "$1" == "-u" ]]; then
     echo "=== Удаление Aeternia DNS Switcher ==="
-    rm -f "$PY_DST" "$UTILS_DST" "$LAUNCHER_DST"
+    rm -f "$PY_DST" "$UTILS_DST" "$LAUNCHER_DST" "$INSTALL_BIN/servers.preset.json"
     if [[ "$IS_MACOS" == "1" ]]; then
         rm -rf "/Applications/Aeternia DNS.app"
     else
@@ -64,6 +64,10 @@ echo
 echo "[1/6] Копирую скрипты в $INSTALL_BIN ..."
 install -m 755 "$PY_SCRIPT" "$PY_DST"
 install -m 644 "$PY_UTILS" "$UTILS_DST"
+# Встроенные серверы (сборки с пресетом): читаются при первом запуске
+if [[ -f "$SRC_DIR/servers.preset.json" ]]; then
+    install -m 644 "$SRC_DIR/servers.preset.json" "$INSTALL_BIN/servers.preset.json"
+fi
 
 if [[ "$IS_MACOS" == "0" ]]; then
     echo "[2/6] Создаю /etc/aeternia-dns/ ..."

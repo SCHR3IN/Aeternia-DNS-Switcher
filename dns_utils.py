@@ -185,9 +185,20 @@ def generate_all_servers(user_id: str) -> list:
 
 # ─── Server Storage ──────────────────────────────────────────────────────────
 
+# Сборка со встроенными серверами кладёт рядом с программой servers.preset.json.
+PRESET_PATH = Path(__file__).resolve().parent / "servers.preset.json"
+
+
 def load_servers() -> tuple[list, str]:
     if not SERVERS_PATH.exists():
-        return [], ""
+        # Первый запуск: серверы из встроенного пресета, если он есть. Свой список пользователя не трогаем.
+        if not PRESET_PATH.is_file():
+            return [], ""
+        try:
+            preset = json.loads(PRESET_PATH.read_text(encoding="utf-8"))
+            save_servers(preset["servers"], preset.get("user_id", ""))
+        except Exception:
+            return [], ""
     try:
         data = json.loads(SERVERS_PATH.read_text(encoding="utf-8"))
         return data.get("servers", []), data.get("user_id", "")
@@ -591,7 +602,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.5.0"
+VERSION = "2.6.0"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 

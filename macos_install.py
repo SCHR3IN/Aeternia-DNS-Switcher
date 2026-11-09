@@ -172,6 +172,11 @@ def install(account, engine_path=None):
         helper('disable')
     for name in ('macos_helper.py', 'macos_install.py', 'aeternia_dns_switcher.py', 'dns_utils.py'):
         put(ROOT / name, (src / name).read_bytes())
+    # Встроенные серверы для сборок с пресетом; без пресета убираем старый.
+    if (src / 'servers.preset.json').is_file():
+        put(ROOT / 'servers.preset.json', (src / 'servers.preset.json').read_bytes())
+    else:
+        (ROOT / 'servers.preset.json').unlink(missing_ok=True)
     put(ROOT / 'dnscrypt-proxy', binary.read_bytes(), 0o755)
     if engine:
         put(ROOT / 'sing-box', engine.read_bytes(), 0o755)
@@ -252,7 +257,7 @@ def install(account, engine_path=None):
         (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': 'launcher', 'CFBundleName': 'Aeternia DNS',
             'CFBundleIdentifier': 'space.aeternia.dns-switcher',
-            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.5.0',
+            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.6.0',
             'CFBundleIconFile': 'icon.png',
         }))
         shutil.copyfile(src / 'logo.png', bundle / 'Contents/Resources/icon.png')

@@ -33,9 +33,11 @@ class DeliveryTests(unittest.TestCase):
         version = (REPO / 'VERSION').read_text().strip()
         self.assertIn(f"AETERNIA_INSTALLER_VERSION='{version}'", installer)
         files = re.findall(r'echo "([A-Za-z0-9+/=]+)" \| decode_base64 > "\$AETERNIA_TMP/([^"/]+)"', installer)
-        self.assertEqual({name for _, name in files}, {
-            'aeternia_dns_switcher.py', 'dns_utils.py', 'install.sh', 'logo.png',
-            'macos_helper.py', 'macos_install.py'})
+        expected = {'aeternia_dns_switcher.py', 'dns_utils.py', 'install.sh', 'logo.png',
+                    'macos_helper.py', 'macos_install.py'}
+        if (REPO / 'servers.preset.json').is_file():
+            expected.add('servers.preset.json')
+        self.assertEqual({name for _, name in files}, expected)
         for payload, name in files:
             with self.subTest(name=name):
                 self.assertEqual(base64.b64decode(payload), (REPO / name).read_bytes())
