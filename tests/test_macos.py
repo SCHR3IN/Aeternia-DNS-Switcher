@@ -489,3 +489,32 @@ class WarpProfileTests(unittest.TestCase):
             path.write_text('{"broken": true}')
             self.assertIsNone(d.read_atlas_warp_profile(path))
             self.assertIsNone(d.read_atlas_warp_profile(Path(temp) / 'missing.json'))
+
+
+class StopTests(unittest.TestCase):
+    """bootout на новых macOS асинхронный: служба числится загруженной ещё какое-то время."""
+
+    def run_stop(self, states):
+        states = list(states)
+        plist = Mock()
+        with patch.object(h, 'loaded', side_effect=lambda label: states.pop(0) if states else False), \
+                patch.object(h, 'run') as run, patch.object(h.time, 'sleep'):
+            h.stop('space.aeternia.dns', plist)
+        return run, plist
+
+    def test_waits_for_delayed_unload(self):
+        run, plist = self.run_stop([True, True, True, False])
+        run.assert_called_once_with(['/bin/launchctl', 'bootout', 'system/space.aeternia.dns'])
+        plist.unlink.assert_called_once_with(missing_ok=True)
+
+    def test_still_loaded_after_waiting_is_an_error(self):
+        plist = Mock()
+        with patch.object(h, 'loaded', return_value=True), patch.object(h, 'run'), \
+                patch.object(h.time, 'sleep'):
+            with self.assertRaisesRegex(h.Failure, 'всё ещё загружена'):
+                h.stop('space.aeternia.dns', plist)
+        plist.unlink.assert_not_called()
+
+    def test_not_loaded_needs_no_bootout(self):
+        run, plist = self.run_stop([False])
+        run.assert_not_called()

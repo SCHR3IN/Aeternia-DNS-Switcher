@@ -179,7 +179,12 @@ def stop(label=None, plist=None):
         return
     if loaded(label):
         run(['/bin/launchctl', 'bootout', f'system/{label}'])
-    if loaded(label):
+    # На новых macOS bootout возвращается раньше, чем служба выгружена: ждём до 5 секунд.
+    for _ in range(20):
+        if not loaded(label):
+            break
+        time.sleep(0.25)
+    else:
         raise Failure(f'Служба {label} всё ещё загружена.')
     plist.unlink(missing_ok=True)
 
