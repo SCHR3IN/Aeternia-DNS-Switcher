@@ -205,6 +205,10 @@ def doh_path(uid):
     return f'/dns-query/{uid}' if uid else '/dns-query'
 
 
+# Необязательные правила пересылки dnscrypt-proxy («домен адрес[,адрес]»): ставятся установщиком под root.
+FORWARDING_RULES = ROOT / 'forwarding-rules.txt'
+
+
 def config_for(target):
     host = f'{target_host(target)}:{target_port(target)}'.encode()
     path = doh_path(target['user_id']).encode()
@@ -216,7 +220,8 @@ def config_for(target):
             "max_clients = 250\ncache = true\nignore_system_dns = true\n"
             "bootstrap_resolvers = ['1.1.1.1:53', '9.9.9.9:53']\n"
             "netprobe_timeout = 10\n"
-            f"[static.'aeternia-doh']\nstamp = '{stamp}'\n").encode()
+            + (f"forwarding_rules = '{FORWARDING_RULES}'\n" if FORWARDING_RULES.is_file() else "")
+            + f"[static.'aeternia-doh']\nstamp = '{stamp}'\n").encode()
 
 
 def start(target):
