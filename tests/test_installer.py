@@ -2,6 +2,7 @@
 import importlib
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import patch
@@ -96,9 +97,17 @@ class HomebrewBinaryTests(unittest.TestCase):
         with patch.object(Path, 'is_file', lambda p: p == expected):
             self.assertEqual(installer.dnscrypt_binary(), expected)
 
+    def test_explicit_binary_path_is_used_or_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            binary = Path(temp) / 'dnscrypt-proxy'
+            with self.assertRaisesRegex(RuntimeError, 'не найден'):
+                installer.dnscrypt_binary(str(binary))
+            binary.write_text('')
+            self.assertEqual(installer.dnscrypt_binary(str(binary)), binary)
+
     def test_missing_binary_has_actionable_error(self):
         with patch.object(Path, 'is_file', return_value=False):
-            with self.assertRaisesRegex(RuntimeError, 'brew install dnscrypt-proxy'):
+            with self.assertRaisesRegex(RuntimeError, '--dnscrypt'):
                 installer.dnscrypt_binary()
 
 

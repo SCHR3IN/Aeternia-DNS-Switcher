@@ -20,6 +20,17 @@ jobs:
           for script in install.sh install-macos.sh build_installer.sh aeternia-dns-installer.sh; do
             /bin/bash -n "$script"
           done
+      - name: Install without Homebrew, as the one-command installer does on Intel Macs
+        run: |
+          arch=$(uname -m); [ "$arch" = arm64 ] && sum=5fddb05d3920efce121ca70f3f7e4f952f9572dd4c9c699ee28722e82ede9434 || sum=0a93a115c3cb2b0d2ec2d1c8ce6e9005d6a842710a6a1972c2ebe39afd272f1f
+          curl -fsSL "https://github.com/DNSCrypt/dnscrypt-proxy/releases/download/2.1.20/dnscrypt-proxy-macos_${arch}-2.1.20.zip" -o /tmp/dnscrypt.zip
+          [ "$(shasum -a 256 /tmp/dnscrypt.zip | cut -d' ' -f1)" = "$sum" ]
+          unzip -q /tmp/dnscrypt.zip -d /tmp/dnscrypt
+          sudo /bin/bash ./aeternia-dns-installer.sh --user "$(id -un)" --dnscrypt "$(find /tmp/dnscrypt -type f -name dnscrypt-proxy | head -1)"
+          printf '%s\n' '{"action":"enable","code":"fi","user_id":"","host":"cloudflare-dns.com","port":443}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
+          dig +short example.com @127.0.0.1 | grep -E '^[0-9.]+$'
+          printf '%s\n' '{"action":"disable"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
+          sudo /usr/bin/python3 -I -S /Library/PrivilegedHelperTools/space.aeternia.dns/macos_install.py --uninstall
       - name: Install DNS engine
         run: brew install dnscrypt-proxy
       - name: Install the embedded macOS package with an explicit user
@@ -28,7 +39,7 @@ jobs:
         run: |
           sudo -k
           printf '%s\n' '{"action":"status"}' | sudo -n /Library/PrivilegedHelperTools/space.aeternia.dns-helper
-          /usr/bin/python3 -I -S -c 'import sys; sys.path.insert(0, "/Library/PrivilegedHelperTools/space.aeternia.dns"); import curses, aeternia_dns_switcher; assert aeternia_dns_switcher.VERSION == "2.6.2"'
+          /usr/bin/python3 -I -S -c 'import sys; sys.path.insert(0, "/Library/PrivilegedHelperTools/space.aeternia.dns"); import curses, aeternia_dns_switcher; assert aeternia_dns_switcher.VERSION == "2.6.3"'
       - name: Bundled server preset is installed (preset builds only)
         run: |
           if [ -f servers.preset.json ]; then

@@ -602,7 +602,7 @@ def measure_all_pings(servers: list) -> dict:
 
 # ─── Обновления ──────────────────────────────────────────────────────────────
 
-VERSION = "2.6.2"
+VERSION = "2.6.3"
 GITHUB_REPO = "SCHR3IN/Aeternia-DNS-Switcher"
 GITHUB_RAW = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
 
