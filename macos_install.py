@@ -141,7 +141,12 @@ def navis_engine(explicit=None):
     return None
 
 
-def dnscrypt_binary():
+def dnscrypt_binary(explicit=None):
+    if explicit:
+        candidate = Path(explicit)
+        if not candidate.is_file():
+            raise RuntimeError(f'DNS-движок не найден: {candidate}')
+        return candidate
     # Homebrew installs this daemon in sbin (including keg-only/unlinked installs).
     for prefix in (Path('/opt/homebrew'), Path('/usr/local')):
         for relative in ('opt/dnscrypt-proxy/sbin/dnscrypt-proxy',
@@ -149,14 +154,15 @@ def dnscrypt_binary():
             candidate = prefix / relative
             if candidate.is_file():
                 return candidate
-    raise RuntimeError('DNS-движок не найден. Выполните без sudo: brew install dnscrypt-proxy')
+    raise RuntimeError('DNS-движок не найден. Установите его командой быстрой установки из README '
+                       'или укажите файл: sudo bash install.sh --dnscrypt /путь/к/dnscrypt-proxy')
 
 
-def install(account, engine_path=None):
+def install(account, engine_path=None, dnscrypt_path=None):
     src = Path(__file__).resolve().parent
     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_.-]*', account.pw_name):
         raise RuntimeError('Имя учётной записи не поддерживается правилом sudoers.')
-    binary = dnscrypt_binary()
+    binary = dnscrypt_binary(dnscrypt_path)
     engine = navis_engine(engine_path)
     # Ensure the actual interpreter and stdlib work before making any changes.
     run(['/usr/bin/python3', '-I', '-S', '-c',
@@ -262,7 +268,7 @@ def install(account, engine_path=None):
         (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({
             'CFBundleExecutable': 'launcher', 'CFBundleName': 'Aeternia DNS',
             'CFBundleIdentifier': 'space.aeternia.dns-switcher',
-            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.6.2',
+            'CFBundlePackageType': 'APPL', 'CFBundleShortVersionString': '2.6.3',
             'CFBundleIconFile': 'icon.png',
         }))
         shutil.copyfile(src / 'logo.png', bundle / 'Contents/Resources/icon.png')
@@ -295,6 +301,7 @@ def main():
     os.umask(0o022)
     parser = argparse.ArgumentParser(description='Установка Aeternia DNS для macOS')
     parser.add_argument('--user', help='Пользователь Mac, которому разрешено переключать DNS')
+    parser.add_argument('--dnscrypt', help='Путь к dnscrypt-proxy; по умолчанию ищется в Homebrew')
     parser.add_argument('--engine', help='Путь к sing-box для режима NAVIS (WARP); по умолчанию ищется автоматически')
     parser.add_argument('--uninstall', '-u', action='store_true')
     args = parser.parse_args()
@@ -309,7 +316,7 @@ def main():
         if args.uninstall:
             uninstall()
         else:
-            install(account, args.engine)
+            install(account, args.engine, args.dnscrypt)
     if not args.uninstall:
         # After releasing the maintenance lock, verify an actual passwordless request.
         verification = run(['/usr/bin/sudo', '-u', account.pw_name,
